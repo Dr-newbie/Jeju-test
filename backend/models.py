@@ -65,6 +65,8 @@ class DayRoute(BaseModel):
     total_distance_km: float
     total_duration_min: int
     path: List[LatLng] = []
+    start_place: Optional[Place] = None
+    end_place: Optional[Place] = None
 
 
 class TripRouteResponse(BaseModel):

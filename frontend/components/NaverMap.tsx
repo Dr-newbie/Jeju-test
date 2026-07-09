@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import type { DayRoute } from "../types";
-import { DAY_COLORS } from "../constants";
+import type { DayRoute, Place } from "../types";
+import { DAY_COLORS, placeIcon } from "../constants";
 
 declare global {
   interface Window {
@@ -143,6 +143,16 @@ function drawRoutes(
       });
     });
 
+    // 숙소/공항(하루의 시작·끝 지점)은 방문지 번호 마커와 구분되는
+    // 별도 아이콘으로 표시한다.
+    [
+      { place: route.start_place, label: "출발" },
+      { place: route.end_place, label: "도착" },
+    ].forEach(({ place, label }) => {
+      if (!place) return;
+      addAnchorMarker(map, place, `${route.day}일차 ${label}`, color, markers);
+    });
+
     if (path.length >= 2) {
       const polyline = new window.naver.maps.Polyline({
         map,
@@ -154,5 +164,45 @@ function drawRoutes(
 
       polylines.push(polyline);
     }
+  });
+}
+
+function addAnchorMarker(
+  map: any,
+  place: Place,
+  title: string,
+  color: string,
+  markers: any[]
+) {
+  const marker = new window.naver.maps.Marker({
+    position: new window.naver.maps.LatLng(place.lat, place.lng),
+    map,
+    title,
+    icon: {
+      content: `
+        <div style="
+          width:30px;height:30px;border-radius:50%;
+          background:${color};border:2px solid #fff;
+          display:flex;align-items:center;justify-content:center;
+          font-size:15px;box-shadow:0 2px 6px rgba(0,0,0,0.35);
+        ">${placeIcon(place.type)}</div>
+      `,
+      anchor: new window.naver.maps.Point(15, 15),
+    },
+  });
+
+  markers.push(marker);
+
+  const infoWindow = new window.naver.maps.InfoWindow({
+    content: `
+      <div style="padding:8px;min-width:160px;">
+        <b>${title}</b><br/>
+        <span>${place.name}</span>
+      </div>
+    `,
+  });
+
+  window.naver.maps.Event.addListener(marker, "click", () => {
+    infoWindow.open(map, marker);
   });
 }

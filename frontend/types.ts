@@ -32,4 +32,6 @@ export type DayRoute = {
   total_distance_km: number;
   total_duration_min: number;
   path?: LatLng[];
+  start_place?: Place | null;
+  end_place?: Place | null;
 };

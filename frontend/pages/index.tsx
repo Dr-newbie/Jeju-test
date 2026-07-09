@@ -108,7 +108,7 @@ export default function Home() {
   const [airportId, setAirportId] = useState<string>("airport_1");
   const [accommodationByDay, setAccommodationByDay] = useState<
     Record<number, string>
-  >({ 1: "hotel_1", 2: "hotel_1", 3: "hotel_1" });
+  >({ 1: "hotel_1", 2: "hotel_1" });
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [recommendations, setRecommendations] = useState<
@@ -121,6 +121,10 @@ export default function Home() {
   const [toast, setToast] = useState<string | null>(null);
 
   const accommodations = places.filter((p) => p.type === "accommodation");
+  const placesByType = PLACE_TYPES.map((t) => ({
+    ...t,
+    items: places.filter((p) => p.type === t.value),
+  })).filter((group) => group.items.length > 0);
 
   const showToast = (message: string) => {
     setToast(message);
@@ -371,8 +375,12 @@ export default function Home() {
           거리를 계산하느라 장소가 많으면 몇 초 걸릴 수 있어요.
         </p>
 
+        <p className="hint" style={{ marginTop: 0 }}>
+          마지막날은 공항으로 돌아가니 숙소가 필요 없어요.
+        </p>
+
         <div className="day-accommodation-list">
-          {Array.from({ length: numDays }, (_, i) => i + 1).map((day) => (
+          {Array.from({ length: Math.max(0, numDays - 1) }, (_, i) => i + 1).map((day) => (
             <label key={day}>
               {day}일차 숙소
               <select
@@ -406,89 +414,103 @@ export default function Home() {
         <div className="section-title">
           <span className="step">3</span>저장된 장소
         </div>
-        {places.map((p) => (
-          <div key={p.id} className="place-row">
-            <span className="place-icon">{placeIcon(p.type)}</span>
-            <div className="place-body">
-              <span className="place-info">
-                {p.name}{" "}
-                <span className="meta-inline">
-                  {p.naver_category ? `· ${p.naver_category}` : ""}
-                </span>
-              </span>
+        {placesByType.map((group) => (
+          <div key={group.value} className="place-group">
+            <div className="place-group-title">
+              {placeIcon(group.value)} {group.label}
+              <span className="place-group-count">{group.items.length}</span>
+            </div>
 
-              <div className="place-controls">
-                <select
-                  value={p.type}
-                  onChange={(e) => updatePlaceType(p.id, e.target.value)}
-                >
-                  {PLACE_TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
+            {group.items.map((p) => (
+              <div key={p.id} className="place-row">
+                <span className="place-icon">{placeIcon(p.type)}</span>
+                <div className="place-body">
+                  <span className="place-info">
+                    {p.name}{" "}
+                    <span className="meta-inline">
+                      {p.naver_category ? `· ${p.naver_category}` : ""}
+                    </span>
+                  </span>
 
-                {p.type === "restaurant" && (
-                  <select
-                    value={p.meal_slot ?? ""}
-                    onChange={(e) =>
-                      updatePlaceMealSlot(
-                        p.id,
-                        (e.target.value || null) as
-                          | "breakfast"
-                          | "lunch"
-                          | "dinner"
-                          | null
-                      )
-                    }
-                  >
-                    <option value="">식사 미지정</option>
-                    <option value="breakfast">아침</option>
-                    <option value="lunch">점심</option>
-                    <option value="dinner">저녁</option>
-                  </select>
-                )}
+                  <div className="place-controls">
+                    <select
+                      value={p.type}
+                      onChange={(e) => updatePlaceType(p.id, e.target.value)}
+                    >
+                      {PLACE_TYPES.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
 
-                <button
-                  className="btn-danger btn-sm"
-                  onClick={() => removePlace(p.id)}
-                >
-                  삭제
-                </button>
-              </div>
-
-              <div className="day-toggle-group">
-                {Array.from({ length: numDays }, (_, i) => i + 1).map(
-                  (day) => {
-                    const active = p.preferred_day === day;
-                    return (
-                      <button
-                        key={day}
-                        type="button"
-                        className={`day-toggle${active ? " active" : ""}`}
-                        style={
-                          active
-                            ? {
-                                [
-                                  "--day-color" as any
-                                ]: DAY_COLORS[(day - 1) % DAY_COLORS.length],
-                              }
-                            : undefined
-                        }
-                        onClick={() =>
-                          updatePlaceDay(p.id, active ? null : day)
+                    {p.type === "restaurant" && (
+                      <select
+                        value={p.meal_slot ?? ""}
+                        onChange={(e) =>
+                          updatePlaceMealSlot(
+                            p.id,
+                            (e.target.value || null) as
+                              | "breakfast"
+                              | "lunch"
+                              | "dinner"
+                              | null
+                          )
                         }
                       >
-                        {day}일차
-                      </button>
-                    );
-                  }
-                )}
+                        <option value="">식사 미지정</option>
+                        <option value="breakfast">아침</option>
+                        <option value="lunch">점심</option>
+                        <option value="dinner">저녁</option>
+                      </select>
+                    )}
+
+                    <button
+                      className="btn-danger btn-sm"
+                      onClick={() => removePlace(p.id)}
+                    >
+                      삭제
+                    </button>
+                  </div>
+
+                  <div className="day-toggle-group">
+                    {Array.from({ length: numDays }, (_, i) => i + 1).map(
+                      (day) => {
+                        const active = p.preferred_day === day;
+                        return (
+                          <button
+                            key={day}
+                            type="button"
+                            className={`day-toggle${active ? " active" : ""}`}
+                            style={
+                              active
+                                ? {
+                                    [
+                                      "--day-color" as any
+                                    ]: DAY_COLORS[
+                                      (day - 1) % DAY_COLORS.length
+                                    ],
+                                  }
+                                : undefined
+                            }
+                            onClick={() =>
+                              updatePlaceDay(p.id, active ? null : day)
+                            }
+                          >
+                            {day}일차
+                          </button>
+                        );
+                      }
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
+            ))}
           </div>
         ))}
+        {placesByType.length === 0 && (
+          <p className="hint">아직 저장된 장소가 없습니다.</p>
+        )}
       </section>
 
       <section className="card">

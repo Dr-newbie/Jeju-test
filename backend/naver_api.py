@@ -78,16 +78,24 @@ def reverse_geocode(lat: float, lng: float) -> str | None:
     return " ".join(parts) if parts else None
 
 
-_driving_route_cache: dict[tuple[float, float, float, float], tuple[float, float] | None] = {}
+DrivingRoute = tuple[float, float, list[tuple[float, float]]]
+
+_driving_route_cache: dict[tuple[float, float, float, float], DrivingRoute | None] = {}
 
 
 def get_driving_route(
     start_lat: float, start_lng: float, goal_lat: float, goal_lng: float
-) -> tuple[float, float] | None:
+) -> DrivingRoute | None:
     """
     NCP Directions 5 (trafast, 실시간 교통 반영 빠른길).
     실패하거나 경로가 없으면 None (호출부에서 직선거리로 fallback).
-    반환값: (distance_km, duration_min)
+    반환값: (distance_km, duration_min, path[(lat,lng), ...])
+
+    waypoints를 여러 개 넣는 한 번의 호출 대신 항상 두 지점 사이만 요청한다.
+    NCP Directions는 요청당 넣을 수 있는 waypoint 수에 제한이 있어서, 하루
+    동선에 방문지가 많으면 한 번에 다 넣는 호출이 실패할 수 있기 때문이다.
+    이 방식이면 구간(leg) 하나당 호출 하나라 그 제한에 걸리지 않고, 이미
+    거리 행렬을 만들면서 호출한 구간은 캐시로 재사용된다.
     """
     cache_key = (
         round(start_lat, 5),
@@ -117,59 +125,19 @@ def get_driving_route(
         r.raise_for_status()
         data = r.json()
 
-        summary = data.get("route", {}).get("trafast", [{}])[0].get("summary")
+        summary_data = data.get("route", {}).get("trafast", [{}])[0]
+        summary = summary_data.get("summary")
+        path = summary_data.get("path")
         if summary:
             distance_km = summary["distance"] / 1000
             duration_min = summary["duration"] / 1000 / 60
-            result = (distance_km, duration_min)
+            path_latlng = [(lat, lng) for lng, lat in path] if path else []
+            result = (distance_km, duration_min, path_latlng)
     except Exception:
         result = None
 
     _driving_route_cache[cache_key] = result
     return result
-
-
-def get_driving_path(points: list[tuple[float, float]]) -> list[tuple[float, float]] | None:
-    """
-    (lat, lng) 지점들을 순서대로 지나는 실제 도로 경로의 좌표열을 반환한다.
-    NCP Directions 5 (trafast)의 waypoints 기능을 이용해 한 번의 호출로 전체
-    구간의 path를 가져온다. 실패하면 None (호출부에서 직선 연결로 fallback).
-    """
-    if len(points) < 2:
-        return None
-
-    start_lat, start_lng = points[0]
-    goal_lat, goal_lng = points[-1]
-    middle = points[1:-1]
-
-    url = "https://maps.apigw.ntruss.com/map-direction/v1/driving"
-
-    headers = {
-        "x-ncp-apigw-api-key-id": NAVER_MAP_CLIENT_ID,
-        "x-ncp-apigw-api-key": NAVER_MAP_CLIENT_SECRET,
-    }
-
-    params = {
-        "start": f"{start_lng},{start_lat}",
-        "goal": f"{goal_lng},{goal_lat}",
-        "option": "trafast",
-    }
-
-    if middle:
-        params["waypoints"] = "|".join(f"{lng},{lat}" for lat, lng in middle)
-
-    try:
-        r = requests.get(url, headers=headers, params=params, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-
-        path = data.get("route", {}).get("trafast", [{}])[0].get("path")
-        if not path:
-            return None
-
-        return [(lat, lng) for lng, lat in path]
-    except Exception:
-        return None
 
 
 def search_local_place(query: str, display: int = 5):

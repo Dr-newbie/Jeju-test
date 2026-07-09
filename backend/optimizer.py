@@ -7,7 +7,7 @@ from typing import List, Dict
 from sklearn.cluster import KMeans
 
 from models import Place, DayRoute, RouteStop, LatLng
-from naver_api import get_driving_route, get_driving_path
+from naver_api import get_driving_route
 
 
 def haversine_km(a: Place, b: Place) -> float:
@@ -36,14 +36,18 @@ def haversine_km(a: Place, b: Place) -> float:
 
 class DistanceMatrix:
     """
-    주어진 장소 집합에 대한 실제 도로 거리/시간 행렬 (NCP Directions,
+    주어진 장소 집합에 대한 실제 도로 거리/시간/경로 행렬 (NCP Directions,
     실시간 교통 반영). 쌍마다 API를 병렬로 호출해서 채우고, 경로를
     못 찾거나 호출이 실패한 쌍은 직선거리 + 평균 30km/h 가정으로
-    보정한 값을 채운다.
+    보정한 값을 채운다 (이 경우 실제 도로 path는 없음).
     """
 
     def __init__(self, points: List[Place]):
-        self._table: dict[frozenset, tuple[float, float]] = {}
+        # key: frozenset({a.id, b.id})
+        # value: (distance_km, duration_min, path, from_id)
+        #   path는 from_id 지점에서 시작하는 방향으로 저장되어 있어서,
+        #   반대 방향으로 조회하면 뒤집어서 돌려준다.
+        self._table: dict[frozenset, tuple[float, float, list[tuple[float, float]], str]] = {}
 
         unique_points = list({p.id: p for p in points}.values())
         pairs = list(combinations(unique_points, 2))
@@ -53,15 +57,17 @@ class DistanceMatrix:
                 self._table[key] = value
 
     @staticmethod
-    def _fetch_pair(pair: tuple[Place, Place]) -> tuple[frozenset, tuple[float, float]]:
+    def _fetch_pair(pair: tuple[Place, Place]):
         a, b = pair
         result = get_driving_route(a.lat, a.lng, b.lat, b.lng)
 
         if result is None:
             dist = haversine_km(a, b)
-            result = (dist, dist / 30 * 60)  # 평균 30km/h 가정으로 보정
+            distance_km, duration_min, path = dist, dist / 30 * 60, []
+        else:
+            distance_km, duration_min, path = result
 
-        return frozenset((a.id, b.id)), result
+        return frozenset((a.id, b.id)), (distance_km, duration_min, path, a.id)
 
     def get(self, a: Place, b: Place) -> tuple[float, float]:
         if a.id == b.id:
@@ -69,7 +75,7 @@ class DistanceMatrix:
 
         cached = self._table.get(frozenset((a.id, b.id)))
         if cached is not None:
-            return cached
+            return cached[0], cached[1]
 
         dist = haversine_km(a, b)
         return (dist, dist / 30 * 60)
@@ -79,6 +85,18 @@ class DistanceMatrix:
 
     def duration_min(self, a: Place, b: Place) -> float:
         return self.get(a, b)[1]
+
+    def path(self, a: Place, b: Place) -> list[tuple[float, float]]:
+        """a->b 구간의 실제 도로 좌표열. 못 구했으면 빈 리스트."""
+        if a.id == b.id:
+            return []
+
+        cached = self._table.get(frozenset((a.id, b.id)))
+        if cached is None or not cached[2]:
+            return []
+
+        _, _, path, from_id = cached
+        return path if from_id == a.id else list(reversed(path))
 
 
 def infer_place_type(naver_category: str | None) -> str:
@@ -417,11 +435,10 @@ def build_day_route(
     if end_place and current_place and current_place.id != end_place.id:
         total_distance += matrix.distance_km(current_place, end_place)
 
-    ordered_points = [
-        (p.lat, p.lng)
-        for p in ([start_place] if start_place else []) + route + ([end_place] if end_place else [])
-    ]
-    path = get_driving_path(ordered_points) or []
+    ordered_places = (
+        ([start_place] if start_place else []) + route + ([end_place] if end_place else [])
+    )
+    path = build_full_path(ordered_places, matrix)
 
     return DayRoute(
         day=day,
@@ -429,7 +446,30 @@ def build_day_route(
         total_distance_km=round(total_distance, 2),
         total_duration_min=current_min,
         path=[LatLng(lat=lat, lng=lng) for lat, lng in path],
+        start_place=start_place,
+        end_place=end_place,
     )
+
+
+def build_full_path(
+    ordered_places: List[Place], matrix: DistanceMatrix
+) -> list[tuple[float, float]]:
+    """
+    방문 순서대로 구간(leg)별 실제 도로 path를 이어붙여 하루 전체 경로를
+    만든다. 특정 구간만 도로 API가 실패했으면 그 구간만 직선으로 잇고,
+    나머지 구간은 그대로 실제 도로를 따라가게 한다.
+    """
+    full_path: list[tuple[float, float]] = []
+
+    for a, b in zip(ordered_places, ordered_places[1:]):
+        leg = matrix.path(a, b) or [(a.lat, a.lng), (b.lat, b.lng)]
+
+        if full_path and leg[0] == full_path[-1]:
+            full_path.extend(leg[1:])
+        else:
+            full_path.extend(leg)
+
+    return full_path
 
 
 def optimize_trip(
@@ -454,16 +494,33 @@ def optimize_trip(
     routes = []
 
     for day in range(1, num_days + 1):
-        accommodation = choose_accommodation_for_day(
+        # accommodation_by_day[d]는 "d일차 밤에 묵는 숙소"를 뜻한다.
+        # 그래서 d일차의 시작은 전날 밤 숙소(d-1)여야 하고, d일차의 끝은
+        # 그날 밤 숙소(d)여야 한다. 즉 하루의 끝이 다음날의 시작으로
+        # 자연스럽게 이어진다. (마지막날은 숙소를 지정할 필요가 없어서
+        # accommodation_by_day에 값이 없고, 그 경우 전날 숙소를 그대로 씀)
+        tonight_accommodation = choose_accommodation_for_day(
             places=places,
             day=day,
             accommodation_by_day=accommodation_by_day,
         )
+        last_night_accommodation = (
+            choose_accommodation_for_day(
+                places=places,
+                day=day - 1,
+                accommodation_by_day=accommodation_by_day,
+            )
+            if day > 1
+            else None
+        )
 
         # 1일차는 공항에서 출발, 마지막날은 공항에서 여행이 끝난다.
-        # 그 외 날짜는 그날 배정된 숙소를 시작/종료 기준으로 삼는다.
-        start_place = airport if (day == 1 and airport) else accommodation
-        end_place = airport if (day == num_days and airport) else accommodation
+        # 그 외에는 전날 밤 숙소에서 출발해서 그날 밤 숙소에서 끝난다.
+        start_place = (
+            airport if (day == 1 and airport)
+            else (last_night_accommodation or tonight_accommodation)
+        )
+        end_place = airport if (day == num_days and airport) else tonight_accommodation
 
         day_places = [
             p for p in assigned[day]
