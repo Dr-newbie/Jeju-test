@@ -127,12 +127,42 @@ def infer_place_type(naver_category: str | None) -> str:
 
 DINNER_PREFERRED_KEYWORDS = ["회", "횟집", "물회", "돼지", "흑돼지", "제주삼겹"]
 
+MAX_RESTAURANTS_PER_DAY = 3
+
 
 def is_preferred_dinner_place(p: Place) -> bool:
     text = " ".join(
         filter(None, [p.food_category, p.naver_category, p.name])
     )
     return any(keyword in text for keyword in DINNER_PREFERRED_KEYWORDS)
+
+
+def select_restaurants_for_day(restaurants: List[Place]) -> List[Place]:
+    """
+    하루 최대 MAX_RESTAURANTS_PER_DAY개까지만 식당을 고른다.
+    식사 슬롯(breakfast/lunch/dinner)이 지정된 식당을 우선 하나씩 고르고,
+    자리가 남으면 슬롯 미지정 식당 중 priority가 높은 순으로 채운다.
+    """
+    by_slot: Dict[str, Place] = {}
+    unslotted: List[Place] = []
+
+    for r in restaurants:
+        if not r.meal_slot:
+            unslotted.append(r)
+            continue
+        current = by_slot.get(r.meal_slot)
+        if current is None or r.priority > current.priority:
+            by_slot[r.meal_slot] = r
+
+    selected = list(by_slot.values())
+
+    remaining_slots = MAX_RESTAURANTS_PER_DAY - len(selected)
+    if remaining_slots > 0:
+        selected.extend(
+            sorted(unslotted, key=lambda r: -r.priority)[:remaining_slots]
+        )
+
+    return selected[:MAX_RESTAURANTS_PER_DAY]
 
 
 # 제주 주요 권역의 대표 좌표. 날짜별로 장소를 나눌 때 이 좌표를 KMeans의
@@ -348,14 +378,17 @@ def two_opt(
 def insert_meal_places(route: List[Place]) -> List[Place]:
     """
     식당을 점심/저녁 위치 근처에 넣는 단순 rule.
-    현재는 타입이 restaurant인 장소를 route 내에 유지하되,
-    관광지 사이에 끼우는 정도로 단순화.
+    하루 최대 MAX_RESTAURANTS_PER_DAY개까지만 식당을 넣고, 각 식당 바로
+    뒤에는 (남은 카페가 있다면) 카페를 붙여서 식당-카페 순으로 배치한다.
     """
-    restaurants = [p for p in route if p.type == "restaurant"]
-    non_restaurants = [p for p in route if p.type != "restaurant"]
+    all_restaurants = [p for p in route if p.type == "restaurant"]
+    cafes = [p for p in route if p.type == "cafe"]
+    rest = [p for p in route if p.type not in ("restaurant", "cafe")]
 
-    if not restaurants:
+    if not all_restaurants:
         return route
+
+    restaurants = select_restaurants_for_day(all_restaurants)
 
     lunch_candidates = [r for r in restaurants if r.meal_slot == "lunch"]
     dinner_candidates = [r for r in restaurants if r.meal_slot == "dinner"]
@@ -373,17 +406,34 @@ def insert_meal_places(route: List[Place]) -> List[Place]:
         if r is not lunch and r is not dinner
     ]
 
-    new_route = non_restaurants[:]
+    remaining_cafes = cafes[:]
+
+    def take_cafe() -> Place | None:
+        return remaining_cafes.pop(0) if remaining_cafes else None
+
+    new_route = rest[:]
 
     if lunch:
         idx = max(1, len(new_route) // 3)
         new_route.insert(idx, lunch)
+        cafe = take_cafe()
+        if cafe:
+            new_route.insert(idx + 1, cafe)
 
     if dinner:
         idx = max(1, int(len(new_route) * 0.75))
         new_route.insert(idx, dinner)
+        cafe = take_cafe()
+        if cafe:
+            new_route.insert(idx + 1, cafe)
 
-    new_route.extend(others)
+    for r in others:
+        new_route.append(r)
+        cafe = take_cafe()
+        if cafe:
+            new_route.append(cafe)
+
+    new_route.extend(remaining_cafes)
 
     return new_route
 
