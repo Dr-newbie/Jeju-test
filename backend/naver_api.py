@@ -78,6 +78,57 @@ def reverse_geocode(lat: float, lng: float) -> str | None:
     return " ".join(parts) if parts else None
 
 
+_driving_route_cache: dict[tuple[float, float, float, float], tuple[float, float] | None] = {}
+
+
+def get_driving_route(
+    start_lat: float, start_lng: float, goal_lat: float, goal_lng: float
+) -> tuple[float, float] | None:
+    """
+    NCP Directions 5 (trafast, 실시간 교통 반영 빠른길).
+    실패하거나 경로가 없으면 None (호출부에서 직선거리로 fallback).
+    반환값: (distance_km, duration_min)
+    """
+    cache_key = (
+        round(start_lat, 5),
+        round(start_lng, 5),
+        round(goal_lat, 5),
+        round(goal_lng, 5),
+    )
+    if cache_key in _driving_route_cache:
+        return _driving_route_cache[cache_key]
+
+    url = "https://maps.apigw.ntruss.com/map-direction/v1/driving"
+
+    headers = {
+        "x-ncp-apigw-api-key-id": NAVER_MAP_CLIENT_ID,
+        "x-ncp-apigw-api-key": NAVER_MAP_CLIENT_SECRET,
+    }
+
+    params = {
+        "start": f"{start_lng},{start_lat}",
+        "goal": f"{goal_lng},{goal_lat}",
+        "option": "trafast",
+    }
+
+    result = None
+    try:
+        r = requests.get(url, headers=headers, params=params, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+
+        summary = data.get("route", {}).get("trafast", [{}])[0].get("summary")
+        if summary:
+            distance_km = summary["distance"] / 1000
+            duration_min = summary["duration"] / 1000 / 60
+            result = (distance_km, duration_min)
+    except Exception:
+        result = None
+
+    _driving_route_cache[cache_key] = result
+    return result
+
+
 def search_local_place(query: str, display: int = 5):
     """
     Naver Search API - Local Search.

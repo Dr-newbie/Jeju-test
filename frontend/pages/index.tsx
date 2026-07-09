@@ -117,24 +117,30 @@ export default function Home() {
   const [recommendLoading, setRecommendLoading] = useState<number | null>(
     null
   );
+  const [optimizing, setOptimizing] = useState(false);
 
   const accommodations = places.filter((p) => p.type === "accommodation");
 
   const optimize = async () => {
-    const res = await axios.post(`${BACKEND_URL}/api/optimize`, {
-      places,
-      num_days: numDays,
-      start_hour: 9,
-      end_hour: 21,
-      accommodation_by_day: Object.fromEntries(
-        Object.entries(accommodationByDay).filter(
-          ([day, id]) => Number(day) <= numDays && id
-        )
-      ),
-      airport_id: airportId || undefined,
-    });
+    setOptimizing(true);
+    try {
+      const res = await axios.post(`${BACKEND_URL}/api/optimize`, {
+        places,
+        num_days: numDays,
+        start_hour: 9,
+        end_hour: 21,
+        accommodation_by_day: Object.fromEntries(
+          Object.entries(accommodationByDay).filter(
+            ([day, id]) => Number(day) <= numDays && id
+          )
+        ),
+        airport_id: airportId || undefined,
+      });
 
-    setRoutes(res.data.routes);
+      setRoutes(res.data.routes);
+    } finally {
+      setOptimizing(false);
+    }
   };
 
   const searchPlace = async () => {
@@ -336,11 +342,18 @@ export default function Home() {
             </select>
           </label>
 
-          <button className="btn-primary" onClick={optimize}>
-            루트 생성
+          <button
+            className="btn-primary"
+            onClick={optimize}
+            disabled={optimizing}
+          >
+            {optimizing ? "루트 생성 중..." : "루트 생성"}
           </button>
         </div>
-        <p className="hint">1일차는 공항 출발, 마지막날은 공항 도착으로 짜여요.</p>
+        <p className="hint">
+          1일차는 공항 출발, 마지막날은 공항 도착으로 짜여요. 실제 도로
+          거리를 계산하느라 장소가 많으면 몇 초 걸릴 수 있어요.
+        </p>
 
         <div className="day-accommodation-list">
           {Array.from({ length: numDays }, (_, i) => i + 1).map((day) => (
@@ -421,31 +434,41 @@ export default function Home() {
                   </select>
                 )}
 
-                <select
-                  value={p.preferred_day ?? ""}
-                  onChange={(e) =>
-                    updatePlaceDay(
-                      p.id,
-                      e.target.value === "" ? null : Number(e.target.value)
-                    )
-                  }
-                >
-                  <option value="">날짜 미지정</option>
-                  {Array.from({ length: numDays }, (_, i) => i + 1).map(
-                    (day) => (
-                      <option key={day} value={day}>
-                        {day}일차 고정
-                      </option>
-                    )
-                  )}
-                </select>
-
                 <button
                   className="btn-danger btn-sm"
                   onClick={() => removePlace(p.id)}
                 >
                   삭제
                 </button>
+              </div>
+
+              <div className="day-toggle-group">
+                {Array.from({ length: numDays }, (_, i) => i + 1).map(
+                  (day) => {
+                    const active = p.preferred_day === day;
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        className={`day-toggle${active ? " active" : ""}`}
+                        style={
+                          active
+                            ? {
+                                [
+                                  "--day-color" as any
+                                ]: DAY_COLORS[(day - 1) % DAY_COLORS.length],
+                              }
+                            : undefined
+                        }
+                        onClick={() =>
+                          updatePlaceDay(p.id, active ? null : day)
+                        }
+                      >
+                        {day}일차
+                      </button>
+                    );
+                  }
+                )}
               </div>
             </div>
           </div>

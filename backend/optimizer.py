@@ -1,9 +1,13 @@
 import math
+from concurrent.futures import ThreadPoolExecutor
+from itertools import combinations
+
 import numpy as np
 from typing import List, Dict
 from sklearn.cluster import KMeans
 
 from models import Place, DayRoute, RouteStop
+from naver_api import get_driving_route
 
 
 def haversine_km(a: Place, b: Place) -> float:
@@ -28,6 +32,53 @@ def haversine_km(a: Place, b: Place) -> float:
     )
 
     return 2 * R * math.asin(math.sqrt(x))
+
+
+class DistanceMatrix:
+    """
+    주어진 장소 집합에 대한 실제 도로 거리/시간 행렬 (NCP Directions,
+    실시간 교통 반영). 쌍마다 API를 병렬로 호출해서 채우고, 경로를
+    못 찾거나 호출이 실패한 쌍은 직선거리 + 평균 30km/h 가정으로
+    보정한 값을 채운다.
+    """
+
+    def __init__(self, points: List[Place]):
+        self._table: dict[frozenset, tuple[float, float]] = {}
+
+        unique_points = list({p.id: p for p in points}.values())
+        pairs = list(combinations(unique_points, 2))
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            for key, value in executor.map(self._fetch_pair, pairs):
+                self._table[key] = value
+
+    @staticmethod
+    def _fetch_pair(pair: tuple[Place, Place]) -> tuple[frozenset, tuple[float, float]]:
+        a, b = pair
+        result = get_driving_route(a.lat, a.lng, b.lat, b.lng)
+
+        if result is None:
+            dist = haversine_km(a, b)
+            result = (dist, dist / 30 * 60)  # 평균 30km/h 가정으로 보정
+
+        return frozenset((a.id, b.id)), result
+
+    def get(self, a: Place, b: Place) -> tuple[float, float]:
+        if a.id == b.id:
+            return (0.0, 0.0)
+
+        cached = self._table.get(frozenset((a.id, b.id)))
+        if cached is not None:
+            return cached
+
+        dist = haversine_km(a, b)
+        return (dist, dist / 30 * 60)
+
+    def distance_km(self, a: Place, b: Place) -> float:
+        return self.get(a, b)[0]
+
+    def duration_min(self, a: Place, b: Place) -> float:
+        return self.get(a, b)[1]
 
 
 def infer_place_type(naver_category: str | None) -> str:
@@ -191,6 +242,7 @@ def assign_places_to_days(
 def nearest_neighbor_route(
     start: Place | None,
     places: List[Place],
+    matrix: DistanceMatrix,
 ) -> List[Place]:
     """
     간단한 nearest-neighbor route.
@@ -207,7 +259,7 @@ def nearest_neighbor_route(
         route.append(current)
 
     while unvisited:
-        next_place = min(unvisited, key=lambda p: haversine_km(current, p))
+        next_place = min(unvisited, key=lambda p: matrix.distance_km(current, p))
         route.append(next_place)
         unvisited.remove(next_place)
         current = next_place
@@ -215,7 +267,12 @@ def nearest_neighbor_route(
     return route
 
 
-def route_distance_km(route: List[Place], start: Place | None = None, end: Place | None = None) -> float:
+def route_distance_km(
+    route: List[Place],
+    matrix: DistanceMatrix,
+    start: Place | None = None,
+    end: Place | None = None,
+) -> float:
     if not route:
         return 0.0
 
@@ -224,16 +281,21 @@ def route_distance_km(route: List[Place], start: Place | None = None, end: Place
 
     for p in route:
         if p.id != current.id:
-            total += haversine_km(current, p)
+            total += matrix.distance_km(current, p)
         current = p
 
     if end is not None and current.id != end.id:
-        total += haversine_km(current, end)
+        total += matrix.distance_km(current, end)
 
     return total
 
 
-def two_opt(route: List[Place], start: Place | None = None, end: Place | None = None) -> List[Place]:
+def two_opt(
+    route: List[Place],
+    matrix: DistanceMatrix,
+    start: Place | None = None,
+    end: Place | None = None,
+) -> List[Place]:
     """
     2-opt로 경로 개선.
     """
@@ -241,7 +303,7 @@ def two_opt(route: List[Place], start: Place | None = None, end: Place | None = 
         return route
 
     best = route[:]
-    best_distance = route_distance_km(best, start=start, end=end)
+    best_distance = route_distance_km(best, matrix, start=start, end=end)
 
     improved = True
     while improved:
@@ -255,7 +317,7 @@ def two_opt(route: List[Place], start: Place | None = None, end: Place | None = 
                 new_route = best[:]
                 new_route[i:j] = reversed(new_route[i:j])
 
-                new_distance = route_distance_km(new_route, start=start, end=end)
+                new_distance = route_distance_km(new_route, matrix, start=start, end=end)
 
                 if new_distance < best_distance:
                     best = new_route
@@ -316,10 +378,13 @@ def build_day_route(
     start_hour: int,
 ) -> DayRoute:
     """
-    하루 route 생성.
+    하루 route 생성. 실제 도로 거리/시간(NCP Directions)을 기준으로 짠다.
     """
-    route = nearest_neighbor_route(start_place, day_places)
-    route = two_opt(route, start=start_place, end=end_place)
+    anchor_points = [p for p in [start_place, end_place] if p is not None]
+    matrix = DistanceMatrix(anchor_points + day_places)
+
+    route = nearest_neighbor_route(start_place, day_places, matrix)
+    route = two_opt(route, matrix, start=start_place, end=end_place)
     route = insert_meal_places(route)
 
     stops = []
@@ -330,13 +395,12 @@ def build_day_route(
 
     for order, p in enumerate(route, start=1):
         if current_place is not None:
-            dist = haversine_km(current_place, p)
+            dist, travel_min = matrix.get(current_place, p)
             total_distance += dist
-            travel_min = int(dist / 30 * 60)  # 평균 30km/h 가정
         else:
             travel_min = 0
 
-        current_min += travel_min
+        current_min += round(travel_min)
 
         stops.append(
             RouteStop(
@@ -351,7 +415,7 @@ def build_day_route(
         current_place = p
 
     if end_place and current_place and current_place.id != end_place.id:
-        total_distance += haversine_km(current_place, end_place)
+        total_distance += matrix.distance_km(current_place, end_place)
 
     return DayRoute(
         day=day,
