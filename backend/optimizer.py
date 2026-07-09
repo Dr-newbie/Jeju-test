@@ -6,8 +6,8 @@ import numpy as np
 from typing import List, Dict
 from sklearn.cluster import KMeans
 
-from models import Place, DayRoute, RouteStop
-from naver_api import get_driving_route
+from models import Place, DayRoute, RouteStop, LatLng
+from naver_api import get_driving_route, get_driving_path
 
 
 def haversine_km(a: Place, b: Place) -> float:
@@ -417,11 +417,18 @@ def build_day_route(
     if end_place and current_place and current_place.id != end_place.id:
         total_distance += matrix.distance_km(current_place, end_place)
 
+    ordered_points = [
+        (p.lat, p.lng)
+        for p in ([start_place] if start_place else []) + route + ([end_place] if end_place else [])
+    ]
+    path = get_driving_path(ordered_points) or []
+
     return DayRoute(
         day=day,
         stops=stops,
         total_distance_km=round(total_distance, 2),
         total_duration_min=current_min,
+        path=[LatLng(lat=lat, lng=lng) for lat, lng in path],
     )
 
 

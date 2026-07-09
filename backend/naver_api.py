@@ -129,6 +129,49 @@ def get_driving_route(
     return result
 
 
+def get_driving_path(points: list[tuple[float, float]]) -> list[tuple[float, float]] | None:
+    """
+    (lat, lng) 지점들을 순서대로 지나는 실제 도로 경로의 좌표열을 반환한다.
+    NCP Directions 5 (trafast)의 waypoints 기능을 이용해 한 번의 호출로 전체
+    구간의 path를 가져온다. 실패하면 None (호출부에서 직선 연결로 fallback).
+    """
+    if len(points) < 2:
+        return None
+
+    start_lat, start_lng = points[0]
+    goal_lat, goal_lng = points[-1]
+    middle = points[1:-1]
+
+    url = "https://maps.apigw.ntruss.com/map-direction/v1/driving"
+
+    headers = {
+        "x-ncp-apigw-api-key-id": NAVER_MAP_CLIENT_ID,
+        "x-ncp-apigw-api-key": NAVER_MAP_CLIENT_SECRET,
+    }
+
+    params = {
+        "start": f"{start_lng},{start_lat}",
+        "goal": f"{goal_lng},{goal_lat}",
+        "option": "trafast",
+    }
+
+    if middle:
+        params["waypoints"] = "|".join(f"{lng},{lat}" for lat, lng in middle)
+
+    try:
+        r = requests.get(url, headers=headers, params=params, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+
+        path = data.get("route", {}).get("trafast", [{}])[0].get("path")
+        if not path:
+            return None
+
+        return [(lat, lng) for lng, lat in path]
+    except Exception:
+        return None
+
+
 def search_local_place(query: str, display: int = 5):
     """
     Naver Search API - Local Search.

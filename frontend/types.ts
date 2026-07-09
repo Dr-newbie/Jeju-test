@@ -21,9 +21,15 @@ export type RouteStop = {
   note?: string;
 };
 
+export type LatLng = {
+  lat: number;
+  lng: number;
+};
+
 export type DayRoute = {
   day: number;
   stops: RouteStop[];
   total_distance_km: number;
   total_duration_min: number;
+  path?: LatLng[];
 };

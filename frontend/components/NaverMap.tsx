@@ -102,9 +102,17 @@ function drawRoutes(
   routes.forEach((route, idx) => {
     const color = DAY_COLORS[idx % DAY_COLORS.length];
 
-    const path = route.stops.map((stop) => {
-      return new window.naver.maps.LatLng(stop.place.lat, stop.place.lng);
-    });
+    // 실제 도로를 따라가는 path가 있으면 그걸 쓰고, 없으면(예: 옛 공유 링크)
+    // 방문지를 직선으로 이은 경로로 대체한다.
+    const path =
+      route.path && route.path.length >= 2
+        ? route.path.map(
+            (p) => new window.naver.maps.LatLng(p.lat, p.lng)
+          )
+        : route.stops.map(
+            (stop) =>
+              new window.naver.maps.LatLng(stop.place.lat, stop.place.lng)
+          );
 
     route.stops.forEach((stop) => {
       const position = new window.naver.maps.LatLng(

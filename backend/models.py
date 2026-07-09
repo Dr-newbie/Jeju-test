@@ -54,11 +54,17 @@ class RouteStop(BaseModel):
     note: Optional[str] = None
 
 
+class LatLng(BaseModel):
+    lat: float
+    lng: float
+
+
 class DayRoute(BaseModel):
     day: int
     stops: List[RouteStop]
     total_distance_km: float
     total_duration_min: int
+    path: List[LatLng] = []
 
 
 class TripRouteResponse(BaseModel):
