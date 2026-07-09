@@ -119,6 +119,7 @@ export default function Home() {
   );
   const [optimizing, setOptimizing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [hoveredDay, setHoveredDay] = useState<number | null>(null);
 
   const accommodations = places.filter((p) => p.type === "accommodation");
   const placesByType = PLACE_TYPES.map((t) => ({
@@ -518,7 +519,7 @@ export default function Home() {
           <span className="step">4</span>지도
         </div>
         <div className="map-wrap">
-          <NaverMap routes={routes} />
+          <NaverMap routes={routes} hoveredDay={hoveredDay} />
         </div>
       </section>
 
@@ -526,6 +527,11 @@ export default function Home() {
         <div className="section-title" style={{ padding: "0 4px" }}>
           <span className="step">5</span>날짜별 루트
         </div>
+        {routes.length > 0 && (
+          <p className="hint" style={{ padding: "0 4px", marginTop: -8 }}>
+            날짜 동그라미에 마우스를 올리면 지도에서 그날 경로만 강조돼요.
+          </p>
+        )}
 
         {routes.length > 0 && (
           <div className="card">
@@ -560,7 +566,13 @@ export default function Home() {
               style={{ ["--day-color" as any]: dayColor }}
             >
               <div className="route-card-header">
-                <span className="day-badge">{route.day}</span>
+                <span
+                  className="day-badge"
+                  onMouseEnter={() => setHoveredDay(route.day)}
+                  onMouseLeave={() => setHoveredDay(null)}
+                >
+                  {route.day}
+                </span>
                 <h3>{route.day}일차</h3>
               </div>
 
