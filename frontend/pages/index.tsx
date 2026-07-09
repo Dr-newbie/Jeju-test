@@ -11,7 +11,7 @@ const NaverMap = dynamic(() => import("../components/NaverMap"), {
 const RECOMMEND_CATEGORIES = ["맛집", "카페", "관광지"];
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5001";
 
 const PLACE_TYPES: { value: string; label: string }[] = [
   { value: "etc", label: "미분류" },

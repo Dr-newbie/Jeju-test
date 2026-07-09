@@ -10,7 +10,7 @@ const NaverMap = dynamic(() => import("../../components/NaverMap"), {
 });
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5001";
 
 export default function SharedRoute() {
   const router = useRouter();

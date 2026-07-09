@@ -26,7 +26,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 # .env에 네이버 API 키 입력
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 5001
 ```
 
 `DATABASE_URL`을 지정하지 않으면 로컬에서는 `backend/dev.db`(SQLite)로 자동 저장됩니다. 배포 환경에서는 Postgres를 붙여야 재시작 후에도 공유 링크가 유지됩니다 (아래 배포 섹션 참고).
