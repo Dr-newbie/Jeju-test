@@ -118,14 +118,20 @@ export default function Home() {
     null
   );
   const [optimizing, setOptimizing] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   const accommodations = places.filter((p) => p.type === "accommodation");
 
-  const optimize = async () => {
+  const showToast = (message: string) => {
+    setToast(message);
+    window.setTimeout(() => setToast(null), 2200);
+  };
+
+  const optimize = async (placesOverride?: Place[]) => {
     setOptimizing(true);
     try {
       const res = await axios.post(`${BACKEND_URL}/api/optimize`, {
-        places,
+        places: placesOverride ?? places,
         num_days: numDays,
         start_hour: 9,
         end_hour: 21,
@@ -178,6 +184,8 @@ export default function Home() {
     };
 
     setPlaces((prev) => [...prev, newPlace]);
+    setSearchResults([]);
+    showToast(`"${newPlace.name}" 추가했어요`);
   };
 
   const removePlace = (id: string) => {
@@ -266,7 +274,15 @@ export default function Home() {
       duration_min: 60,
     };
 
-    setPlaces((prev) => [...prev, newPlace]);
+    const updatedPlaces = [...places, newPlace];
+    setPlaces(updatedPlaces);
+    setRecommendations((prev) => {
+      const next = { ...prev };
+      delete next[day];
+      return next;
+    });
+    showToast(`"${newPlace.name}" 추가하고 경로에 반영했어요`);
+    optimize(updatedPlaces);
   };
 
   return (
@@ -344,7 +360,7 @@ export default function Home() {
 
           <button
             className="btn-primary"
-            onClick={optimize}
+            onClick={() => optimize()}
             disabled={optimizing}
           >
             {optimizing ? "루트 생성 중..." : "루트 생성"}
@@ -588,6 +604,8 @@ export default function Home() {
           );
         })}
       </section>
+
+      {toast && <div className="toast">{toast}</div>}
     </main>
   );
 }
