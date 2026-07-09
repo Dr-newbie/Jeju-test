@@ -41,10 +41,17 @@ def health_check():
 def search_place(query: str):
     """
     네이버 지역 검색 API로 장소 후보 검색.
+    이 서비스는 제주 여행 플래너라 검색 범위를 제주로 한정한다.
+    지역 검색 API에 위치 반경 파라미터가 없어서, 검색어 자체에
+    "제주"를 붙이고 결과도 주소 기준으로 한 번 더 필터링한다.
     """
     try:
-        results = search_local_place(query)
-        return {"items": results}
+        results = search_local_place(f"제주 {query}")
+        jeju_results = [
+            r for r in results
+            if r.get("address") and "제주" in r["address"]
+        ]
+        return {"items": jeju_results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

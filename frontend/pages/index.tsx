@@ -2,6 +2,7 @@ import { useState } from "react";
 import axios from "axios";
 import dynamic from "next/dynamic";
 import type { Place, DayRoute } from "../types";
+import { DAY_COLORS, placeIcon } from "../constants";
 
 const NaverMap = dynamic(() => import("../components/NaverMap"), {
   ssr: false,
@@ -264,38 +265,54 @@ export default function Home() {
 
   return (
     <main className="page">
-      <h1 className="title">Jeju Travel Test</h1>
+      <div className="app-header">
+        <div className="title">🍊 제주 여행 루트 플래너</div>
+        <div className="subtitle">
+          장소를 담고, 며칠 여행할지 정하면 동선을 알아서 짜드려요
+        </div>
+      </div>
 
-      <section className="section">
-        <h2>1. 장소 검색</h2>
+      <section className="card">
+        <div className="section-title">
+          <span className="step">1</span>장소 검색
+        </div>
         <div className="search-row">
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="장소명 검색 ex. 성산일출봉"
           />
-          <button onClick={searchPlace}>검색</button>
+          <button className="btn-primary" onClick={searchPlace}>
+            검색
+          </button>
         </div>
 
-        <div style={{ marginTop: 12 }}>
-          {searchResults.map((item, idx) => (
-            <div key={idx} className="result-card">
-              <b>{item.name}</b>
-              <div className="meta">{item.category}</div>
-              <div className="meta">{item.address}</div>
-              <button onClick={() => addSearchResult(item)}>
-                이 장소 추가
-              </button>
-            </div>
-          ))}
-        </div>
+        {searchResults.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            {searchResults.map((item, idx) => (
+              <div key={idx} className="result-card">
+                <b>{item.name}</b>
+                <div className="meta">{item.category}</div>
+                <div className="meta">{item.address}</div>
+                <button
+                  className="btn-sm"
+                  onClick={() => addSearchResult(item)}
+                >
+                  이 장소 추가
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
-      <section className="section">
-        <h2>2. 여행 설정</h2>
+      <section className="card">
+        <div className="section-title">
+          <span className="step">2</span>여행 설정
+        </div>
         <div className="trip-settings">
           <label>
-            여행 일수:
+            여행 일수
             <input
               type="number"
               value={numDays}
@@ -305,7 +322,7 @@ export default function Home() {
           </label>
 
           <label>
-            공항 (1일차 출발 / 마지막날 도착):
+            공항
             <select
               value={airportId}
               onChange={(e) => setAirportId(e.target.value)}
@@ -319,13 +336,16 @@ export default function Home() {
             </select>
           </label>
 
-          <button onClick={optimize}>루트 생성</button>
+          <button className="btn-primary" onClick={optimize}>
+            루트 생성
+          </button>
         </div>
+        <p className="hint">1일차는 공항 출발, 마지막날은 공항 도착으로 짜여요.</p>
 
-        <div style={{ marginTop: 12 }}>
+        <div className="day-accommodation-list">
           {Array.from({ length: numDays }, (_, i) => i + 1).map((day) => (
-            <label key={day} style={{ display: "block", marginBottom: 6 }}>
-              {day}일차 숙소:{" "}
+            <label key={day}>
+              {day}일차 숙소
               <select
                 value={accommodationByDay[day] ?? ""}
                 onChange={(e) =>
@@ -345,95 +365,121 @@ export default function Home() {
             </label>
           ))}
           {accommodations.length === 0 && (
-            <p className="meta">
-              숙소로 지정된 장소가 없습니다. 아래 "3. 저장된 장소"에서 장소
+            <p className="hint">
+              숙소로 지정된 장소가 없습니다. 아래 "저장된 장소"에서 장소
               타입을 "숙소"로 바꿔주세요.
             </p>
           )}
         </div>
       </section>
 
-      <section className="section">
-        <h2>3. 저장된 장소</h2>
+      <section className="card">
+        <div className="section-title">
+          <span className="step">3</span>저장된 장소
+        </div>
         {places.map((p) => (
           <div key={p.id} className="place-row">
-            <span className="place-info">
-              {p.name} / {p.naver_category ?? "-"}
-            </span>
+            <span className="place-icon">{placeIcon(p.type)}</span>
+            <div className="place-body">
+              <span className="place-info">
+                {p.name}{" "}
+                <span className="meta-inline">
+                  {p.naver_category ? `· ${p.naver_category}` : ""}
+                </span>
+              </span>
 
-            <select
-              value={p.type}
-              onChange={(e) => updatePlaceType(p.id, e.target.value)}
-            >
-              {PLACE_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
+              <div className="place-controls">
+                <select
+                  value={p.type}
+                  onChange={(e) => updatePlaceType(p.id, e.target.value)}
+                >
+                  {PLACE_TYPES.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
 
-            {p.type === "restaurant" && (
-              <select
-                value={p.meal_slot ?? ""}
-                onChange={(e) =>
-                  updatePlaceMealSlot(
-                    p.id,
-                    (e.target.value || null) as
-                      | "breakfast"
-                      | "lunch"
-                      | "dinner"
-                      | null
-                  )
-                }
-              >
-                <option value="">식사 미지정</option>
-                <option value="breakfast">아침</option>
-                <option value="lunch">점심</option>
-                <option value="dinner">저녁</option>
-              </select>
-            )}
+                {p.type === "restaurant" && (
+                  <select
+                    value={p.meal_slot ?? ""}
+                    onChange={(e) =>
+                      updatePlaceMealSlot(
+                        p.id,
+                        (e.target.value || null) as
+                          | "breakfast"
+                          | "lunch"
+                          | "dinner"
+                          | null
+                      )
+                    }
+                  >
+                    <option value="">식사 미지정</option>
+                    <option value="breakfast">아침</option>
+                    <option value="lunch">점심</option>
+                    <option value="dinner">저녁</option>
+                  </select>
+                )}
 
-            <select
-              value={p.preferred_day ?? ""}
-              onChange={(e) =>
-                updatePlaceDay(
-                  p.id,
-                  e.target.value === "" ? null : Number(e.target.value)
-                )
-              }
-            >
-              <option value="">날짜 미지정</option>
-              {Array.from({ length: numDays }, (_, i) => i + 1).map((day) => (
-                <option key={day} value={day}>
-                  {day}일차 고정
-                </option>
-              ))}
-            </select>
+                <select
+                  value={p.preferred_day ?? ""}
+                  onChange={(e) =>
+                    updatePlaceDay(
+                      p.id,
+                      e.target.value === "" ? null : Number(e.target.value)
+                    )
+                  }
+                >
+                  <option value="">날짜 미지정</option>
+                  {Array.from({ length: numDays }, (_, i) => i + 1).map(
+                    (day) => (
+                      <option key={day} value={day}>
+                        {day}일차 고정
+                      </option>
+                    )
+                  )}
+                </select>
 
-            <button onClick={() => removePlace(p.id)}>삭제</button>
+                <button
+                  className="btn-danger btn-sm"
+                  onClick={() => removePlace(p.id)}
+                >
+                  삭제
+                </button>
+              </div>
+            </div>
           </div>
         ))}
       </section>
 
-      <section className="section">
-        <h2>4. 지도</h2>
+      <section className="card">
+        <div className="section-title">
+          <span className="step">4</span>지도
+        </div>
         <div className="map-wrap">
           <NaverMap routes={routes} />
         </div>
       </section>
 
       <section>
-        <h2>5. 날짜별 루트</h2>
+        <div className="section-title" style={{ padding: "0 4px" }}>
+          <span className="step">5</span>날짜별 루트
+        </div>
 
         {routes.length > 0 && (
-          <div style={{ marginBottom: 16 }}>
-            <button onClick={shareRoute} disabled={sharing}>
-              {sharing ? "공유 링크 생성 중..." : "공유 링크 만들기"}
+          <div className="card">
+            <button
+              className="btn-primary"
+              onClick={shareRoute}
+              disabled={sharing}
+            >
+              {sharing ? "공유 링크 생성 중..." : "🔗 공유 링크 만들기"}
             </button>
             {shareUrl && (
-              <div className="search-row" style={{ marginTop: 8 }}>
+              <div className="search-row" style={{ marginTop: 10 }}>
                 <input value={shareUrl} readOnly />
                 <button
+                  className="btn-sm"
                   onClick={() => navigator.clipboard.writeText(shareUrl)}
                 >
                   복사
@@ -443,58 +489,81 @@ export default function Home() {
           </div>
         )}
 
-        {routes.map((route) => (
-          <div key={route.day} className="route-card">
-            <h3>{route.day}일차</h3>
-            <p>
-              총 거리: {route.total_distance_km}km / 총 소요시간:{" "}
-              {route.total_duration_min}분
-            </p>
+        {routes.map((route, idx) => {
+          const dayColor = DAY_COLORS[idx % DAY_COLORS.length];
 
-            <ol>
-              {route.stops.map((stop) => (
-                <li key={stop.order}>
-                  <b>{stop.place.name}</b> - {stop.place.type} - {stop.note}
-                </li>
-              ))}
-            </ol>
-
-            <button
-              onClick={() => loadRecommendations(route)}
-              disabled={recommendLoading === route.day}
+          return (
+            <div
+              key={route.day}
+              className="route-card"
+              style={{ ["--day-color" as any]: dayColor }}
             >
-              {recommendLoading === route.day
-                ? "추천 불러오는 중..."
-                : "이 날 주변 추천 보기"}
-            </button>
-
-            {recommendations[route.day] && (
-              <div style={{ marginTop: 12 }}>
-                {RECOMMEND_CATEGORIES.map((category) => (
-                  <div key={category} style={{ marginBottom: 12 }}>
-                    <b>{category}</b>
-                    {(recommendations[route.day][category] ?? []).map(
-                      (item, idx) => (
-                        <div key={idx} className="result-card">
-                          <b>{item.name}</b>
-                          <div className="meta">{item.category}</div>
-                          <div className="meta">{item.address}</div>
-                          <button
-                            onClick={() =>
-                              addRecommendedPlace(item, route.day)
-                            }
-                          >
-                            이 장소 추가
-                          </button>
-                        </div>
-                      )
-                    )}
-                  </div>
-                ))}
+              <div className="route-card-header">
+                <span className="day-badge">{route.day}</span>
+                <h3>{route.day}일차</h3>
               </div>
-            )}
-          </div>
-        ))}
+
+              <div className="stat-row">
+                <span className="stat-pill">
+                  🚗 {route.total_distance_km}km
+                </span>
+                <span className="stat-pill">
+                  ⏱ {route.total_duration_min}분
+                </span>
+              </div>
+
+              <ol className="stop-list">
+                {route.stops.map((stop) => (
+                  <li key={stop.order} className="stop-item">
+                    <span className="stop-order">{stop.order}</span>
+                    <span>
+                      {placeIcon(stop.place.type)} <b>{stop.place.name}</b>
+                      <span className="stop-meta">{stop.note}</span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+
+              <button
+                className="btn-sm"
+                style={{ marginTop: 14 }}
+                onClick={() => loadRecommendations(route)}
+                disabled={recommendLoading === route.day}
+              >
+                {recommendLoading === route.day
+                  ? "추천 불러오는 중..."
+                  : "이 날 주변 추천 보기"}
+              </button>
+
+              {recommendations[route.day] && (
+                <div>
+                  {RECOMMEND_CATEGORIES.map((category) => (
+                    <div key={category} className="recommend-group">
+                      <b>{category}</b>
+                      {(recommendations[route.day][category] ?? []).map(
+                        (item, idx) => (
+                          <div key={idx} className="result-card">
+                            <b>{item.name}</b>
+                            <div className="meta">{item.category}</div>
+                            <div className="meta">{item.address}</div>
+                            <button
+                              className="btn-sm"
+                              onClick={() =>
+                                addRecommendedPlace(item, route.day)
+                              }
+                            >
+                              이 장소 추가
+                            </button>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </section>
     </main>
   );

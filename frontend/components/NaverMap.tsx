@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { DayRoute } from "../types";
+import { DAY_COLORS } from "../constants";
 
 declare global {
   interface Window {
@@ -98,17 +99,8 @@ function drawRoutes(
 ) {
   if (!window.naver || !window.naver.maps || !routes?.length) return;
 
-  const colors = [
-    "#1976d2",
-    "#d32f2f",
-    "#388e3c",
-    "#f57c00",
-    "#7b1fa2",
-    "#00796b",
-  ];
-
   routes.forEach((route, idx) => {
-    const color = colors[idx % colors.length];
+    const color = DAY_COLORS[idx % DAY_COLORS.length];
 
     const path = route.stops.map((stop) => {
       return new window.naver.maps.LatLng(stop.place.lat, stop.place.lng);

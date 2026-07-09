@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import axios from "axios";
 import dynamic from "next/dynamic";
 import type { DayRoute } from "../../types";
+import { DAY_COLORS, placeIcon } from "../../constants";
 
 const NaverMap = dynamic(() => import("../../components/NaverMap"), {
   ssr: false,
@@ -30,7 +31,12 @@ export default function SharedRoute() {
   if (error) {
     return (
       <main className="page">
-        <p>{error}</p>
+        <div className="app-header">
+          <div className="title">🍊 제주 여행 루트 플래너</div>
+        </div>
+        <div className="card">
+          <p style={{ margin: 0 }}>{error}</p>
+        </div>
       </main>
     );
   }
@@ -38,39 +44,67 @@ export default function SharedRoute() {
   if (!routes) {
     return (
       <main className="page">
-        <p>불러오는 중...</p>
+        <div className="app-header">
+          <div className="title">🍊 제주 여행 루트 플래너</div>
+        </div>
+        <div className="card">
+          <p style={{ margin: 0 }}>불러오는 중...</p>
+        </div>
       </main>
     );
   }
 
   return (
     <main className="page">
-      <h1 className="title">공유된 여행 루트</h1>
+      <div className="app-header">
+        <div className="title">🍊 공유된 여행 루트</div>
+        <div className="subtitle">다른 사람이 만든 제주 여행 코스예요</div>
+      </div>
 
-      <section className="section">
+      <section className="card">
         <div className="map-wrap">
           <NaverMap routes={routes} />
         </div>
       </section>
 
       <section>
-        {routes.map((route) => (
-          <div key={route.day} className="route-card">
-            <h3>{route.day}일차</h3>
-            <p>
-              총 거리: {route.total_distance_km}km / 총 소요시간:{" "}
-              {route.total_duration_min}분
-            </p>
+        {routes.map((route, idx) => {
+          const dayColor = DAY_COLORS[idx % DAY_COLORS.length];
 
-            <ol>
-              {route.stops.map((stop) => (
-                <li key={stop.order}>
-                  <b>{stop.place.name}</b> - {stop.place.type} - {stop.note}
-                </li>
-              ))}
-            </ol>
-          </div>
-        ))}
+          return (
+            <div
+              key={route.day}
+              className="route-card"
+              style={{ ["--day-color" as any]: dayColor }}
+            >
+              <div className="route-card-header">
+                <span className="day-badge">{route.day}</span>
+                <h3>{route.day}일차</h3>
+              </div>
+
+              <div className="stat-row">
+                <span className="stat-pill">
+                  🚗 {route.total_distance_km}km
+                </span>
+                <span className="stat-pill">
+                  ⏱ {route.total_duration_min}분
+                </span>
+              </div>
+
+              <ol className="stop-list">
+                {route.stops.map((stop) => (
+                  <li key={stop.order} className="stop-item">
+                    <span className="stop-order">{stop.order}</span>
+                    <span>
+                      {placeIcon(stop.place.type)} <b>{stop.place.name}</b>
+                      <span className="stop-meta">{stop.note}</span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          );
+        })}
       </section>
     </main>
   );
