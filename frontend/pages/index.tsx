@@ -519,7 +519,11 @@ export default function Home() {
           <span className="step">4</span>지도
         </div>
         <div className="map-wrap">
-          <NaverMap routes={routes} hoveredDay={hoveredDay} />
+          <NaverMap
+            routes={routes}
+            hoveredDay={hoveredDay}
+            onHoverDay={setHoveredDay}
+          />
         </div>
       </section>
 

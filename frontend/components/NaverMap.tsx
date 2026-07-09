@@ -13,35 +13,88 @@ const DIMMED_COLOR = "#c7ccd1";
 type Props = {
   routes: DayRoute[];
   hoveredDay?: number | null;
+  onHoverDay?: (day: number | null) => void;
 };
 
-export default function NaverMap({ routes, hoveredDay = null }: Props) {
+type MarkerEntry = {
+  day: number;
+  marker: any;
+  infoWindow: any;
+  isAnchor: boolean;
+  place: Place;
+  color: string;
+  order?: number;
+};
+
+type PolylineEntry = {
+  day: number;
+  polyline: any;
+  color: string;
+};
+
+export default function NaverMap({ routes, hoveredDay = null, onHoverDay }: Props) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any>(null);
-  const markersRef = useRef<any[]>([]);
-  const polylinesRef = useRef<any[]>([]);
+  const markerEntriesRef = useRef<MarkerEntry[]>([]);
+  const polylineEntriesRef = useRef<PolylineEntry[]>([]);
   const routesRef = useRef<DayRoute[]>(routes);
   const hoveredDayRef = useRef<number | null>(hoveredDay);
+  const onHoverDayRef = useRef<Props["onHoverDay"]>(onHoverDay);
 
   routesRef.current = routes;
   hoveredDayRef.current = hoveredDay;
+  onHoverDayRef.current = onHoverDay;
 
-  const redraw = () => {
+  // 마커/폴리라인 객체를 새로 만들지 않고 아이콘/색상/zIndex만 갱신한다.
+  // 객체를 다시 만들면 그 위에 붙어있던 mouseover/mouseout 리스너가 끊겨서
+  // 지도 위에서 커서를 올려 강조하는 상호작용이 깨지기 때문이다.
+  const applyHoverStyles = (day: number | null) => {
+    markerEntriesRef.current.forEach((entry) => {
+      const isDimmed = day != null && day !== entry.day;
+      const color = isDimmed ? DIMMED_COLOR : entry.color;
+
+      entry.marker.setIcon(
+        entry.isAnchor
+          ? anchorIconContent(color, entry.place)
+          : stopIconContent(color, entry.order ?? 0)
+      );
+      entry.marker.setZIndex(isDimmed ? 0 : 100);
+    });
+
+    polylineEntriesRef.current.forEach((entry) => {
+      const isDimmed = day != null && day !== entry.day;
+
+      entry.polyline.setOptions({
+        strokeColor: isDimmed ? DIMMED_COLOR : entry.color,
+        strokeOpacity: isDimmed ? 0.6 : 0.85,
+        strokeWeight: isDimmed ? 3 : 4,
+        zIndex: isDimmed ? 0 : 100,
+      });
+    });
+  };
+
+  const clearOverlays = () => {
+    markerEntriesRef.current.forEach((entry) => entry.marker.setMap(null));
+    polylineEntriesRef.current.forEach((entry) => entry.polyline.setMap(null));
+    markerEntriesRef.current = [];
+    polylineEntriesRef.current = [];
+  };
+
+  const buildOverlays = () => {
     const map = mapInstanceRef.current;
     if (!map || !window.naver || !window.naver.maps) return;
 
-    markersRef.current.forEach((m) => m.setMap(null));
-    polylinesRef.current.forEach((p) => p.setMap(null));
-    markersRef.current = [];
-    polylinesRef.current = [];
+    clearOverlays();
 
     drawRoutes(
       map,
       routesRef.current,
-      hoveredDayRef.current,
-      markersRef.current,
-      polylinesRef.current
+      markerEntriesRef.current,
+      polylineEntriesRef.current,
+      (day) => onHoverDayRef.current?.(day)
     );
+
+    applyHoverStyles(hoveredDayRef.current);
   };
 
   const fitToRoutes = () => {
@@ -104,7 +157,7 @@ export default function NaverMap({ routes, hoveredDay = null }: Props) {
       }
 
       fitToRoutes();
-      redraw();
+      buildOverlays();
     };
 
     const existingScript = document.getElementById(scriptId);
@@ -136,16 +189,16 @@ export default function NaverMap({ routes, hoveredDay = null }: Props) {
     };
   }, []);
 
-  // routes가 새로 생기면 그 범위에 맞춰 지도를 재중심/재줌한다.
+  // routes가 새로 생기면 그 범위에 맞춰 지도를 재중심/재줌하고 마커/경로를 새로 그린다.
   useEffect(() => {
     fitToRoutes();
-    redraw();
+    buildOverlays();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes]);
 
-  // hoveredDay만 바뀔 때는 지도 시점은 그대로 두고 강조 스타일만 다시 그린다.
+  // hoveredDay만 바뀔 때는 지도 시점/객체는 그대로 두고 강조 스타일만 갱신한다.
   useEffect(() => {
-    redraw();
+    applyHoverStyles(hoveredDay);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hoveredDay]);
 
@@ -155,16 +208,14 @@ export default function NaverMap({ routes, hoveredDay = null }: Props) {
 function drawRoutes(
   map: any,
   routes: DayRoute[],
-  hoveredDay: number | null,
-  markers: any[],
-  polylines: any[]
+  markerEntries: MarkerEntry[],
+  polylineEntries: PolylineEntry[],
+  onHover: (day: number | null) => void
 ) {
   if (!window.naver || !window.naver.maps || !routes?.length) return;
 
   routes.forEach((route, idx) => {
-    const isDimmed = hoveredDay != null && hoveredDay !== route.day;
-    const color = isDimmed ? DIMMED_COLOR : DAY_COLORS[idx % DAY_COLORS.length];
-    const zIndex = isDimmed ? 0 : 100;
+    const color = DAY_COLORS[idx % DAY_COLORS.length];
 
     // 실제 도로를 따라가는 path가 있으면 그걸 쓰고, 없으면(예: 옛 공유 링크)
     // 방문지를 직선으로 이은 경로로 대체한다.
@@ -188,22 +239,9 @@ function drawRoutes(
         position,
         map,
         title: `${route.day}일차 ${stop.order}. ${stop.place.name}`,
-        zIndex,
-        icon: isDimmed
-          ? {
-              content: `
-                <div style="
-                  width:22px;height:22px;border-radius:50%;
-                  background:${DIMMED_COLOR};border:2px solid #fff;
-                  box-shadow:0 1px 3px rgba(0,0,0,0.25);
-                "></div>
-              `,
-              anchor: new window.naver.maps.Point(11, 11),
-            }
-          : undefined,
+        zIndex: 100,
+        icon: stopIconContent(color, stop.order),
       });
-
-      markers.push(marker);
 
       const infoWindow = new window.naver.maps.InfoWindow({
         content: `
@@ -215,8 +253,24 @@ function drawRoutes(
         `,
       });
 
-      window.naver.maps.Event.addListener(marker, "click", () => {
+      // 커서를 올리면 그날 경로만 강조하고 정보창을 띄우고, 벗어나면 원상복구한다.
+      window.naver.maps.Event.addListener(marker, "mouseover", () => {
+        onHover(route.day);
         infoWindow.open(map, marker);
+      });
+      window.naver.maps.Event.addListener(marker, "mouseout", () => {
+        onHover(null);
+        infoWindow.close();
+      });
+
+      markerEntries.push({
+        day: route.day,
+        marker,
+        infoWindow,
+        isAnchor: false,
+        place: stop.place,
+        color,
+        order: stop.order,
       });
     });
 
@@ -232,8 +286,9 @@ function drawRoutes(
         place,
         `${route.day}일차 ${label}`,
         color,
-        zIndex,
-        markers
+        route.day,
+        markerEntries,
+        onHover
       );
     });
 
@@ -242,12 +297,19 @@ function drawRoutes(
         map,
         path,
         strokeColor: color,
-        strokeOpacity: isDimmed ? 0.6 : 0.85,
-        strokeWeight: isDimmed ? 3 : 4,
-        zIndex,
+        strokeOpacity: 0.85,
+        strokeWeight: 4,
+        zIndex: 100,
       });
 
-      polylines.push(polyline);
+      window.naver.maps.Event.addListener(polyline, "mouseover", () =>
+        onHover(route.day)
+      );
+      window.naver.maps.Event.addListener(polyline, "mouseout", () =>
+        onHover(null)
+      );
+
+      polylineEntries.push({ day: route.day, polyline, color });
     }
   });
 }
@@ -257,28 +319,17 @@ function addAnchorMarker(
   place: Place,
   title: string,
   color: string,
-  zIndex: number,
-  markers: any[]
+  day: number,
+  markerEntries: MarkerEntry[],
+  onHover: (day: number | null) => void
 ) {
   const marker = new window.naver.maps.Marker({
     position: new window.naver.maps.LatLng(place.lat, place.lng),
     map,
     title,
-    zIndex,
-    icon: {
-      content: `
-        <div style="
-          width:30px;height:30px;border-radius:50%;
-          background:${color};border:2px solid #fff;
-          display:flex;align-items:center;justify-content:center;
-          font-size:15px;box-shadow:0 2px 6px rgba(0,0,0,0.35);
-        ">${placeIcon(place.type)}</div>
-      `,
-      anchor: new window.naver.maps.Point(15, 15),
-    },
+    zIndex: 100,
+    icon: anchorIconContent(color, place),
   });
-
-  markers.push(marker);
 
   const infoWindow = new window.naver.maps.InfoWindow({
     content: `
@@ -289,7 +340,43 @@ function addAnchorMarker(
     `,
   });
 
-  window.naver.maps.Event.addListener(marker, "click", () => {
+  window.naver.maps.Event.addListener(marker, "mouseover", () => {
+    onHover(day);
     infoWindow.open(map, marker);
   });
+  window.naver.maps.Event.addListener(marker, "mouseout", () => {
+    onHover(null);
+    infoWindow.close();
+  });
+
+  markerEntries.push({ day, marker, infoWindow, isAnchor: true, place, color });
+}
+
+function stopIconContent(color: string, order: number) {
+  return {
+    content: `
+      <div style="
+        width:24px;height:24px;border-radius:50%;
+        background:${color};border:2px solid #fff;
+        display:flex;align-items:center;justify-content:center;
+        color:#fff;font-size:12px;font-weight:700;
+        box-shadow:0 1px 3px rgba(0,0,0,0.3);
+      ">${order}</div>
+    `,
+    anchor: new window.naver.maps.Point(12, 12),
+  };
+}
+
+function anchorIconContent(color: string, place: Place) {
+  return {
+    content: `
+      <div style="
+        width:30px;height:30px;border-radius:50%;
+        background:${color};border:2px solid #fff;
+        display:flex;align-items:center;justify-content:center;
+        font-size:15px;box-shadow:0 2px 6px rgba(0,0,0,0.35);
+      ">${placeIcon(place.type)}</div>
+    `,
+    anchor: new window.naver.maps.Point(15, 15),
+  };
 }

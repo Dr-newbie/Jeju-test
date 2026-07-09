@@ -18,6 +18,7 @@ export default function SharedRoute() {
 
   const [routes, setRoutes] = useState<DayRoute[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hoveredDay, setHoveredDay] = useState<number | null>(null);
 
   useEffect(() => {
     if (!id || typeof id !== "string") return;
@@ -63,7 +64,11 @@ export default function SharedRoute() {
 
       <section className="card">
         <div className="map-wrap">
-          <NaverMap routes={routes} />
+          <NaverMap
+            routes={routes}
+            hoveredDay={hoveredDay}
+            onHoverDay={setHoveredDay}
+          />
         </div>
       </section>
 
@@ -78,7 +83,13 @@ export default function SharedRoute() {
               style={{ ["--day-color" as any]: dayColor }}
             >
               <div className="route-card-header">
-                <span className="day-badge">{route.day}</span>
+                <span
+                  className="day-badge"
+                  onMouseEnter={() => setHoveredDay(route.day)}
+                  onMouseLeave={() => setHoveredDay(null)}
+                >
+                  {route.day}
+                </span>
                 <h3>{route.day}일차</h3>
               </div>
 
