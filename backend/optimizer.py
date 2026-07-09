@@ -50,8 +50,61 @@ def infer_place_type(naver_category: str | None) -> str:
         return "tourist_spot"
     if "쇼핑" in c or "시장" in c:
         return "shopping"
+    if "공항" in c or "항공" in c:
+        return "airport"
 
     return "etc"
+
+
+DINNER_PREFERRED_KEYWORDS = ["회", "횟집", "물회", "돼지", "흑돼지", "제주삼겹"]
+
+
+def is_preferred_dinner_place(p: Place) -> bool:
+    text = " ".join(
+        filter(None, [p.food_category, p.naver_category, p.name])
+    )
+    return any(keyword in text for keyword in DINNER_PREFERRED_KEYWORDS)
+
+
+# 제주 주요 권역의 대표 좌표. 날짜별로 장소를 나눌 때 이 좌표를 KMeans의
+# 초기 중심으로 사용해서, 임의의 초기값보다 실제 여행 동선에 맞는
+# 권역 단위 클러스터가 나오도록 유도한다.
+JEJU_REGION_SEEDS = [
+    (33.4996, 126.5312),  # 제주시내
+    (33.4633, 126.3306),  # 애월/한림
+    (33.3016, 126.1650),  # 한경/고산 (서쪽 끝)
+    (33.2496, 126.4132),  # 중문/서귀포
+    (33.2809, 126.6389),  # 남원/표선
+    (33.4581, 126.9425),  # 성산/우도
+    (33.5427, 126.6668),  # 조천/함덕
+]
+
+
+def select_region_seeds(num_days: int) -> list[tuple[float, float]]:
+    """
+    num_days가 전체 권역 수보다 적을 때, 앞에서부터 자르면 특정 방향
+    (동/서)이 통째로 누락될 수 있다. Farthest-point sampling으로
+    최대한 섬 전체에 고르게 퍼진 시드를 고른다.
+    """
+    seeds = JEJU_REGION_SEEDS
+
+    if num_days >= len(seeds):
+        return seeds
+
+    selected = [seeds[0]]
+    remaining = seeds[1:]
+
+    while len(selected) < num_days:
+        best = max(
+            remaining,
+            key=lambda s: min(
+                (s[0] - c[0]) ** 2 + (s[1] - c[1]) ** 2 for c in selected
+            ),
+        )
+        selected.append(best)
+        remaining.remove(best)
+
+    return selected
 
 
 def choose_accommodation_for_day(
@@ -107,7 +160,8 @@ def assign_places_to_days(
 
     remaining = [
         p for p in places
-        if p.id not in fixed_ids and p.type != "accommodation"
+        if p.id not in fixed_ids
+        and p.type not in ("accommodation", "airport")
     ]
 
     if not remaining:
@@ -119,7 +173,13 @@ def assign_places_to_days(
         return result
 
     coords = np.array([[p.lat, p.lng] for p in remaining])
-    kmeans = KMeans(n_clusters=num_days, random_state=42, n_init="auto")
+
+    if num_days <= len(JEJU_REGION_SEEDS):
+        init = np.array(select_region_seeds(num_days))
+        kmeans = KMeans(n_clusters=num_days, init=init, n_init=1)
+    else:
+        kmeans = KMeans(n_clusters=num_days, random_state=42, n_init="auto")
+
     labels = kmeans.fit_predict(coords)
 
     for p, label in zip(remaining, labels):
@@ -217,17 +277,21 @@ def insert_meal_places(route: List[Place]) -> List[Place]:
     if not restaurants:
         return route
 
-    lunch = None
-    dinner = None
-    others = []
+    lunch_candidates = [r for r in restaurants if r.meal_slot == "lunch"]
+    dinner_candidates = [r for r in restaurants if r.meal_slot == "dinner"]
 
-    for r in restaurants:
-        if r.meal_slot == "lunch" and lunch is None:
-            lunch = r
-        elif r.meal_slot == "dinner" and dinner is None:
-            dinner = r
-        else:
-            others.append(r)
+    lunch = lunch_candidates[0] if lunch_candidates else None
+
+    # 저녁은 여러 후보 중 횟집/돼지고기 계열을 우선한다.
+    dinner = None
+    if dinner_candidates:
+        preferred = [r for r in dinner_candidates if is_preferred_dinner_place(r)]
+        dinner = preferred[0] if preferred else dinner_candidates[0]
+
+    others = [
+        r for r in restaurants
+        if r is not lunch and r is not dinner
+    ]
 
     new_route = non_restaurants[:]
 
@@ -248,13 +312,14 @@ def build_day_route(
     day: int,
     day_places: List[Place],
     start_place: Place | None,
+    end_place: Place | None,
     start_hour: int,
 ) -> DayRoute:
     """
     하루 route 생성.
     """
     route = nearest_neighbor_route(start_place, day_places)
-    route = two_opt(route, start=start_place, end=start_place)
+    route = two_opt(route, start=start_place, end=end_place)
     route = insert_meal_places(route)
 
     stops = []
@@ -285,8 +350,8 @@ def build_day_route(
         current_min += p.duration_min
         current_place = p
 
-    if start_place and current_place:
-        total_distance += haversine_km(current_place, start_place)
+    if end_place and current_place and current_place.id != end_place.id:
+        total_distance += haversine_km(current_place, end_place)
 
     return DayRoute(
         day=day,
@@ -303,6 +368,7 @@ def optimize_trip(
     end_hour: int = 21,
     accommodation_by_day: dict[int, str] | None = None,
     must_place_by_day: dict[int, List[str]] | None = None,
+    airport_id: str | None = None,
 ) -> List[DayRoute]:
     assigned = assign_places_to_days(
         places=places,
@@ -310,24 +376,34 @@ def optimize_trip(
         must_place_by_day=must_place_by_day,
     )
 
+    airport = None
+    if airport_id:
+        airport = next((p for p in places if p.id == airport_id), None)
+
     routes = []
 
     for day in range(1, num_days + 1):
-        start_place = choose_accommodation_for_day(
+        accommodation = choose_accommodation_for_day(
             places=places,
             day=day,
             accommodation_by_day=accommodation_by_day,
         )
 
+        # 1일차는 공항에서 출발, 마지막날은 공항에서 여행이 끝난다.
+        # 그 외 날짜는 그날 배정된 숙소를 시작/종료 기준으로 삼는다.
+        start_place = airport if (day == 1 and airport) else accommodation
+        end_place = airport if (day == num_days and airport) else accommodation
+
         day_places = [
             p for p in assigned[day]
-            if p.type != "accommodation"
+            if p.type not in ("accommodation", "airport")
         ]
 
         route = build_day_route(
             day=day,
             day_places=day_places,
             start_place=start_place,
+            end_place=end_place,
             start_hour=start_hour,
         )
 

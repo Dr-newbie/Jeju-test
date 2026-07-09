@@ -44,6 +44,40 @@ def geocode_address(address: str):
     }
 
 
+def reverse_geocode(lat: float, lng: float) -> str | None:
+    """
+    Naver Cloud Maps Reverse Geocoding.
+    좌표 -> 대략적인 지역명 (시군구 + 읍면동) 문자열.
+    """
+    url = "https://maps.apigw.ntruss.com/map-reversegeocode/v2/gc"
+
+    headers = {
+        "x-ncp-apigw-api-key-id": NAVER_MAP_CLIENT_ID,
+        "x-ncp-apigw-api-key": NAVER_MAP_CLIENT_SECRET,
+    }
+
+    params = {
+        "coords": f"{lng},{lat}",
+        "orders": "legalcode",
+        "output": "json",
+    }
+
+    r = requests.get(url, headers=headers, params=params, timeout=10)
+    r.raise_for_status()
+    data = r.json()
+
+    results = data.get("results", [])
+    if not results:
+        return None
+
+    region = results[0].get("region", {})
+    area2 = region.get("area2", {}).get("name", "")
+    area3 = region.get("area3", {}).get("name", "")
+
+    parts = [p for p in [area2, area3] if p]
+    return " ".join(parts) if parts else None
+
+
 def search_local_place(query: str, display: int = 5):
     """
     Naver Search API - Local Search.
@@ -88,3 +122,24 @@ def search_local_place(query: str, display: int = 5):
         )
 
     return results
+
+
+def recommend_nearby(lat: float, lng: float, category: str, display: int = 5):
+    """
+    좌표 주변 지역명을 역지오코딩으로 구한 뒤, 그 지역명 + 카테고리로
+    지역 검색을 돌려 근처 후보를 추천한다. (별점 데이터는 제공되지 않음)
+    """
+    region = reverse_geocode(lat, lng)
+    query = f"{region} {category}".strip() if region else category
+
+    items = search_local_place(query, display=display)
+
+    for item in items:
+        try:
+            item["lat"] = int(item["mapy"]) / 1e7
+            item["lng"] = int(item["mapx"]) / 1e7
+        except (TypeError, ValueError):
+            item["lat"] = None
+            item["lng"] = None
+
+    return items

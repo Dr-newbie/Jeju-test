@@ -1,32 +1,11 @@
 import { useEffect, useRef } from "react";
+import type { DayRoute } from "../types";
 
 declare global {
   interface Window {
     naver: any;
   }
 }
-
-type Place = {
-  id: string;
-  name: string;
-  lat: number;
-  lng: number;
-  type: string;
-};
-
-type RouteStop = {
-  order: number;
-  place: Place;
-  arrival_min_from_day_start: number;
-  note?: string;
-};
-
-type DayRoute = {
-  day: number;
-  stops: RouteStop[];
-  total_distance_km: number;
-  total_duration_min: number;
-};
 
 type Props = {
   routes: DayRoute[];

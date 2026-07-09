@@ -1,13 +1,21 @@
 import os
+from typing import List
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
-from models import TripRequest, TripRouteResponse
+from models import TripRequest, TripRouteResponse, Place, DayRoute
 from optimizer import optimize_trip, infer_place_type
-from naver_api import search_local_place, geocode_address
+from naver_api import search_local_place, geocode_address, recommend_nearby
+from db import init_db, save_shared_route, get_shared_route
 
 app = FastAPI(title="Travel Route Planner MVP")
+
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
 
 allowed_origins = [
     origin.strip()
@@ -78,6 +86,42 @@ def optimize(req: TripRequest):
         end_hour=req.end_hour,
         accommodation_by_day=req.accommodation_by_day,
         must_place_by_day=req.must_place_by_day,
+        airport_id=req.airport_id,
     )
 
     return TripRouteResponse(routes=routes)
+
+
+@app.get("/api/recommend")
+def recommend(lat: float, lng: float, category: str, display: int = 5):
+    """
+    좌표 주변 카테고리별 추천 장소 (별점 데이터 없음, 네이버 지역 검색 결과 순).
+    """
+    try:
+        items = recommend_nearby(lat=lat, lng=lng, category=category, display=display)
+        return {"items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class ShareRouteRequest(BaseModel):
+    places: List[Place]
+    num_days: int
+    routes: List[DayRoute]
+
+
+@app.post("/api/routes/share")
+def create_shared_route(req: ShareRouteRequest):
+    """
+    생성된 루트를 저장하고 공유용 id를 발급한다.
+    """
+    route_id = save_shared_route(req.model_dump())
+    return {"id": route_id}
+
+
+@app.get("/api/routes/share/{route_id}")
+def read_shared_route(route_id: str):
+    data = get_shared_route(route_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Route not found")
+    return data

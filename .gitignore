@@ -3,6 +3,7 @@ backend/.venv/
 backend/__pycache__/
 backend/.env
 backend/.claude/
+backend/dev.db
 
 # frontend
 frontend/node_modules/

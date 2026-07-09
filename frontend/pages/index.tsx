@@ -1,43 +1,36 @@
 import { useState } from "react";
 import axios from "axios";
 import dynamic from "next/dynamic";
+import type { Place, DayRoute } from "../types";
 
 const NaverMap = dynamic(() => import("../components/NaverMap"), {
   ssr: false,
 });
 
-type Place = {
-  id: string;
-  name: string;
-  address?: string;
-  lat: number;
-  lng: number;
-  type: string;
-  naver_category?: string;
-  priority?: number;
-  must_visit?: boolean;
-  preferred_day?: number | null;
-  duration_min?: number;
-  meal_slot?: "breakfast" | "lunch" | "dinner" | null;
-  food_category?: string | null;
-};
-
-type DayRoute = {
-  day: number;
-  stops: {
-    order: number;
-    place: Place;
-    arrival_min_from_day_start: number;
-    note?: string;
-  }[];
-  total_distance_km: number;
-  total_duration_min: number;
-};
+const RECOMMEND_CATEGORIES = ["맛집", "카페", "관광지"];
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
+const PLACE_TYPES: { value: string; label: string }[] = [
+  { value: "etc", label: "미분류" },
+  { value: "tourist_spot", label: "관광지" },
+  { value: "restaurant", label: "식당" },
+  { value: "cafe", label: "카페" },
+  { value: "shopping", label: "쇼핑" },
+  { value: "accommodation", label: "숙소" },
+  { value: "airport", label: "공항" },
+];
+
 const samplePlaces: Place[] = [
+  {
+    id: "airport_1",
+    name: "제주국제공항",
+    lat: 33.5066,
+    lng: 126.4931,
+    type: "airport",
+    duration_min: 0,
+  },
   {
     id: "hotel_1",
     name: "제주시 숙소",
@@ -111,6 +104,20 @@ export default function Home() {
   const [routes, setRoutes] = useState<DayRoute[]>([]);
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [airportId, setAirportId] = useState<string>("airport_1");
+  const [accommodationByDay, setAccommodationByDay] = useState<
+    Record<number, string>
+  >({ 1: "hotel_1", 2: "hotel_1", 3: "hotel_1" });
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [recommendations, setRecommendations] = useState<
+    Record<number, Record<string, any[]>>
+  >({});
+  const [recommendLoading, setRecommendLoading] = useState<number | null>(
+    null
+  );
+
+  const accommodations = places.filter((p) => p.type === "accommodation");
 
   const optimize = async () => {
     const res = await axios.post(`${BACKEND_URL}/api/optimize`, {
@@ -118,14 +125,12 @@ export default function Home() {
       num_days: numDays,
       start_hour: 9,
       end_hour: 21,
-      accommodation_by_day: {
-        1: "hotel_1",
-        2: "hotel_1",
-        3: "hotel_1",
-      },
-      must_place_by_day: {
-        2: ["p1"],
-      },
+      accommodation_by_day: Object.fromEntries(
+        Object.entries(accommodationByDay).filter(
+          ([day, id]) => Number(day) <= numDays && id
+        )
+      ),
+      airport_id: airportId || undefined,
     });
 
     setRoutes(res.data.routes);
@@ -178,6 +183,85 @@ export default function Home() {
     );
   };
 
+  const updatePlaceType = (id: string, type: string) => {
+    setPlaces((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, type } : p))
+    );
+  };
+
+  const updatePlaceMealSlot = (
+    id: string,
+    mealSlot: "breakfast" | "lunch" | "dinner" | null
+  ) => {
+    setPlaces((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, meal_slot: mealSlot } : p))
+    );
+  };
+
+  const shareRoute = async () => {
+    setSharing(true);
+    try {
+      const res = await axios.post(`${BACKEND_URL}/api/routes/share`, {
+        places,
+        num_days: numDays,
+        routes,
+      });
+      setShareUrl(`${window.location.origin}/shared/${res.data.id}`);
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  const loadRecommendations = async (route: DayRoute) => {
+    setRecommendLoading(route.day);
+
+    const lat =
+      route.stops.reduce((sum, s) => sum + s.place.lat, 0) /
+      route.stops.length;
+    const lng =
+      route.stops.reduce((sum, s) => sum + s.place.lng, 0) /
+      route.stops.length;
+
+    try {
+      const results = await Promise.all(
+        RECOMMEND_CATEGORIES.map((category) =>
+          axios
+            .get(`${BACKEND_URL}/api/recommend`, {
+              params: { lat, lng, category, display: 5 },
+            })
+            .then((res) => [category, res.data.items] as const)
+        )
+      );
+
+      setRecommendations((prev) => ({
+        ...prev,
+        [route.day]: Object.fromEntries(results),
+      }));
+    } finally {
+      setRecommendLoading(null);
+    }
+  };
+
+  const addRecommendedPlace = (item: any, day: number) => {
+    if (item.lat == null || item.lng == null) return;
+
+    const newPlace: Place = {
+      id: `place_${Date.now()}`,
+      name: item.name,
+      address: item.address,
+      lat: item.lat,
+      lng: item.lng,
+      type: "etc",
+      naver_category: item.category,
+      priority: 3,
+      must_visit: false,
+      preferred_day: day,
+      duration_min: 60,
+    };
+
+    setPlaces((prev) => [...prev, newPlace]);
+  };
+
   return (
     <main className="page">
       <h1 className="title">Jeju Travel Test</h1>
@@ -219,7 +303,53 @@ export default function Home() {
               onChange={(e) => setNumDays(Number(e.target.value))}
             />
           </label>
+
+          <label>
+            공항 (1일차 출발 / 마지막날 도착):
+            <select
+              value={airportId}
+              onChange={(e) => setAirportId(e.target.value)}
+            >
+              <option value="">미지정</option>
+              {places.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <button onClick={optimize}>루트 생성</button>
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          {Array.from({ length: numDays }, (_, i) => i + 1).map((day) => (
+            <label key={day} style={{ display: "block", marginBottom: 6 }}>
+              {day}일차 숙소:{" "}
+              <select
+                value={accommodationByDay[day] ?? ""}
+                onChange={(e) =>
+                  setAccommodationByDay((prev) => ({
+                    ...prev,
+                    [day]: e.target.value,
+                  }))
+                }
+              >
+                <option value="">미지정</option>
+                {accommodations.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+          {accommodations.length === 0 && (
+            <p className="meta">
+              숙소로 지정된 장소가 없습니다. 아래 "3. 저장된 장소"에서 장소
+              타입을 "숙소"로 바꿔주세요.
+            </p>
+          )}
         </div>
       </section>
 
@@ -228,8 +358,40 @@ export default function Home() {
         {places.map((p) => (
           <div key={p.id} className="place-row">
             <span className="place-info">
-              {p.name} / {p.type} / {p.naver_category ?? "-"}
+              {p.name} / {p.naver_category ?? "-"}
             </span>
+
+            <select
+              value={p.type}
+              onChange={(e) => updatePlaceType(p.id, e.target.value)}
+            >
+              {PLACE_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+
+            {p.type === "restaurant" && (
+              <select
+                value={p.meal_slot ?? ""}
+                onChange={(e) =>
+                  updatePlaceMealSlot(
+                    p.id,
+                    (e.target.value || null) as
+                      | "breakfast"
+                      | "lunch"
+                      | "dinner"
+                      | null
+                  )
+                }
+              >
+                <option value="">식사 미지정</option>
+                <option value="breakfast">아침</option>
+                <option value="lunch">점심</option>
+                <option value="dinner">저녁</option>
+              </select>
+            )}
 
             <select
               value={p.preferred_day ?? ""}
@@ -262,6 +424,25 @@ export default function Home() {
 
       <section>
         <h2>5. 날짜별 루트</h2>
+
+        {routes.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <button onClick={shareRoute} disabled={sharing}>
+              {sharing ? "공유 링크 생성 중..." : "공유 링크 만들기"}
+            </button>
+            {shareUrl && (
+              <div className="search-row" style={{ marginTop: 8 }}>
+                <input value={shareUrl} readOnly />
+                <button
+                  onClick={() => navigator.clipboard.writeText(shareUrl)}
+                >
+                  복사
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {routes.map((route) => (
           <div key={route.day} className="route-card">
             <h3>{route.day}일차</h3>
@@ -277,6 +458,41 @@ export default function Home() {
                 </li>
               ))}
             </ol>
+
+            <button
+              onClick={() => loadRecommendations(route)}
+              disabled={recommendLoading === route.day}
+            >
+              {recommendLoading === route.day
+                ? "추천 불러오는 중..."
+                : "이 날 주변 추천 보기"}
+            </button>
+
+            {recommendations[route.day] && (
+              <div style={{ marginTop: 12 }}>
+                {RECOMMEND_CATEGORIES.map((category) => (
+                  <div key={category} style={{ marginBottom: 12 }}>
+                    <b>{category}</b>
+                    {(recommendations[route.day][category] ?? []).map(
+                      (item, idx) => (
+                        <div key={idx} className="result-card">
+                          <b>{item.name}</b>
+                          <div className="meta">{item.category}</div>
+                          <div className="meta">{item.address}</div>
+                          <button
+                            onClick={() =>
+                              addRecommendedPlace(item, route.day)
+                            }
+                          >
+                            이 장소 추가
+                          </button>
+                        </div>
+                      )
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </section>
