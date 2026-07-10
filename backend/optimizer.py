@@ -129,6 +129,10 @@ DINNER_PREFERRED_KEYWORDS = ["회", "횟집", "물회", "돼지", "흑돼지", "
 
 MAX_RESTAURANTS_PER_DAY = 3
 
+# 자정 기준 분(minute) 단위 식사 시간대.
+LUNCH_WINDOW = (11 * 60, 14 * 60)
+DINNER_WINDOW = (17 * 60, 20 * 60)
+
 
 def is_preferred_dinner_place(p: Place) -> bool:
     text = " ".join(
@@ -375,15 +379,86 @@ def two_opt(
     return best
 
 
-def insert_meal_places(route: List[Place]) -> List[Place]:
+def _arrival_clock_minutes(
+    route: List[Place],
+    matrix: DistanceMatrix,
+    start_place: Place | None,
+    start_hour: int,
+) -> List[int]:
     """
-    식당을 점심/저녁 위치 근처에 넣는 단순 rule.
-    하루 최대 MAX_RESTAURANTS_PER_DAY개까지만 식당을 넣고, 각 식당 바로
-    뒤에는 (남은 카페가 있다면) 카페를 붙여서 식당-카페 순으로 배치한다.
+    route의 각 인덱스 앞에 도착(=직전 장소에서 막 출발)하는 시각을
+    자정 기준 분 단위로 반환한다. 길이는 len(route)+1이고, 마지막
+    값은 route를 다 돈 뒤의 시각이다.
+    """
+    times = []
+    clock = start_hour * 60
+    prev = start_place
+
+    for p in route:
+        times.append(clock)
+        if prev is not None:
+            _, travel_min = matrix.get(prev, p)
+            clock += round(travel_min)
+        clock += p.duration_min
+        prev = p
+
+    times.append(clock)
+    return times
+
+
+def _best_insert_index(
+    route: List[Place],
+    place: Place,
+    matrix: DistanceMatrix,
+    start_place: Place | None,
+    start_hour: int,
+    time_window: tuple[int, int] | None = None,
+) -> int:
+    """
+    route에 place를 끼워 넣을 위치를 고른다.
+    time_window(자정 기준 분)가 있으면, 그 시간대 안에 도착하는 위치들
+    중 거리 증가가 가장 적은 곳을 고르고, 시간대 안에 드는 위치가 없으면
+    그 시간대에 가장 가까운 위치를 쓴다. time_window가 없으면 거리
+    증가가 가장 적은 위치를 고른다.
+    """
+    times = _arrival_clock_minutes(route, matrix, start_place, start_hour)
+
+    scored = []
+    for i in range(len(route) + 1):
+        prev = route[i - 1] if i > 0 else start_place
+        nxt = route[i] if i < len(route) else None
+
+        added = (
+            (matrix.distance_km(prev, place) if prev else 0.0)
+            + (matrix.distance_km(place, nxt) if nxt else 0.0)
+            - (matrix.distance_km(prev, nxt) if prev and nxt else 0.0)
+        )
+        scored.append((i, times[i], added))
+
+    if time_window:
+        lo, hi = time_window
+        in_window = [s for s in scored if lo <= s[1] <= hi]
+        if in_window:
+            return min(in_window, key=lambda s: s[2])[0]
+        return min(scored, key=lambda s: min(abs(s[1] - lo), abs(s[1] - hi)))[0]
+
+    return min(scored, key=lambda s: s[2])[0]
+
+
+def insert_meal_places(
+    route: List[Place],
+    matrix: DistanceMatrix,
+    start_place: Place | None,
+    start_hour: int,
+) -> List[Place]:
+    """
+    식당/카페를 실제 이동 거리와 식사 시간대(점심/저녁)를 함께 고려해
+    끼워 넣는다. 하루 최대 MAX_RESTAURANTS_PER_DAY개까지만 식당을 넣고,
+    각 식당 바로 뒤에는 (남은 카페가 있다면) 카페를 붙인다.
     """
     all_restaurants = [p for p in route if p.type == "restaurant"]
     cafes = [p for p in route if p.type == "cafe"]
-    rest = [p for p in route if p.type not in ("restaurant", "cafe")]
+    new_route = [p for p in route if p.type not in ("restaurant", "cafe")]
 
     if not all_restaurants:
         return route
@@ -411,29 +486,25 @@ def insert_meal_places(route: List[Place]) -> List[Place]:
     def take_cafe() -> Place | None:
         return remaining_cafes.pop(0) if remaining_cafes else None
 
-    new_route = rest[:]
+    def insert_meal(place: Place, window: tuple[int, int] | None) -> None:
+        idx = _best_insert_index(new_route, place, matrix, start_place, start_hour, window)
+        new_route.insert(idx, place)
+        cafe = take_cafe()
+        if cafe:
+            new_route.insert(idx + 1, cafe)
 
     if lunch:
-        idx = max(1, len(new_route) // 3)
-        new_route.insert(idx, lunch)
-        cafe = take_cafe()
-        if cafe:
-            new_route.insert(idx + 1, cafe)
+        insert_meal(lunch, LUNCH_WINDOW)
 
     if dinner:
-        idx = max(1, int(len(new_route) * 0.75))
-        new_route.insert(idx, dinner)
-        cafe = take_cafe()
-        if cafe:
-            new_route.insert(idx + 1, cafe)
+        insert_meal(dinner, DINNER_WINDOW)
 
     for r in others:
-        new_route.append(r)
-        cafe = take_cafe()
-        if cafe:
-            new_route.append(cafe)
+        insert_meal(r, None)
 
-    new_route.extend(remaining_cafes)
+    for cafe in remaining_cafes[:]:
+        idx = _best_insert_index(new_route, cafe, matrix, start_place, start_hour, None)
+        new_route.insert(idx, cafe)
 
     return new_route
 
@@ -453,7 +524,7 @@ def build_day_route(
 
     route = nearest_neighbor_route(start_place, day_places, matrix)
     route = two_opt(route, matrix, start=start_place, end=end_place)
-    route = insert_meal_places(route)
+    route = insert_meal_places(route, matrix, start_place, start_hour)
 
     stops = []
     current_min = 0
