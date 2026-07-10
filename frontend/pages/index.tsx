@@ -120,6 +120,8 @@ export default function Home() {
   const [optimizing, setOptimizing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
+  const [naverShareUrl, setNaverShareUrl] = useState("");
+  const [importing, setImporting] = useState(false);
 
   const accommodations = places.filter((p) => p.type === "accommodation");
   const placesByType = PLACE_TYPES.map((t) => ({
@@ -191,6 +193,34 @@ export default function Home() {
     setPlaces((prev) => [...prev, newPlace]);
     setSearchResults([]);
     showToast(`"${newPlace.name}" 추가했어요`);
+  };
+
+  const importNaverFavorites = async () => {
+    if (!naverShareUrl.trim()) return;
+
+    setImporting(true);
+    try {
+      const res = await axios.post(`${BACKEND_URL}/api/import/naver-favorites`, {
+        url: naverShareUrl.trim(),
+      });
+
+      const existingIds = new Set(places.map((p) => p.id));
+      const imported: Place[] = res.data.filter(
+        (p: Place) => !existingIds.has(p.id)
+      );
+
+      setPlaces((prev) => [...prev, ...imported]);
+      setNaverShareUrl("");
+      showToast(
+        imported.length > 0
+          ? `${imported.length}개 장소를 가져왔어요`
+          : "이미 가져온 장소들이에요"
+      );
+    } catch (e) {
+      alert("가져오기에 실패했습니다. 공유 링크를 확인해주세요.");
+    } finally {
+      setImporting(false);
+    }
   };
 
   const removePlace = (id: string) => {
@@ -331,6 +361,30 @@ export default function Home() {
             ))}
           </div>
         )}
+
+        <div className="import-naver">
+          <div className="section-title" style={{ fontSize: 14 }}>
+            네이버 지도 즐겨찾기 가져오기
+          </div>
+          <p className="hint">
+            네이버 지도 앱에서 저장 리스트를 공유 링크로 만든 뒤, 그 링크를
+            아래에 붙여넣으세요.
+          </p>
+          <div className="search-row">
+            <input
+              value={naverShareUrl}
+              onChange={(e) => setNaverShareUrl(e.target.value)}
+              placeholder="https://naver.me/... 공유 링크"
+            />
+            <button
+              className="btn-primary"
+              onClick={importNaverFavorites}
+              disabled={importing}
+            >
+              {importing ? "가져오는 중..." : "가져오기"}
+            </button>
+          </div>
+        </div>
       </section>
 
       <section className="card">

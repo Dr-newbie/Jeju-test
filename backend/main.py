@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from models import TripRequest, TripRouteResponse, Place, DayRoute
 from optimizer import optimize_trip, infer_place_type
 from naver_api import search_local_place, geocode_address, recommend_nearby
+from naver_import import fetch_naver_shared_bookmarks, parse_naver_bookmarks
 from db import init_db, save_shared_route, get_shared_route
 
 app = FastAPI(title="Travel Route Planner MVP")
@@ -70,6 +71,25 @@ def geocode(query: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class NaverFavoritesImportRequest(BaseModel):
+    url: str
+
+
+@app.post("/api/import/naver-favorites", response_model=List[Place])
+def import_naver_favorites(req: NaverFavoritesImportRequest):
+    """
+    네이버 지도 저장 리스트 공유 링크(또는 shareId)를 받아 서버에서 직접
+    가져와 Place 목록으로 변환한다. (공식 export 기능이 없어 내부 API 사용)
+    """
+    try:
+        payload = fetch_naver_shared_bookmarks(req.url)
+        return parse_naver_bookmarks(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"네이버 지도에서 가져오기 실패: {e}")
 
 
 @app.post("/api/optimize", response_model=TripRouteResponse)

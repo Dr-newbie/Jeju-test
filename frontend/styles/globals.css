@@ -118,6 +118,12 @@ select {
   color: var(--color-text);
 }
 
+.import-naver {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
 input:focus,
 select:focus,
 button:focus-visible {
