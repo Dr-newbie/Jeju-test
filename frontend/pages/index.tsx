@@ -117,6 +117,20 @@ export default function Home() {
   const [recommendLoading, setRecommendLoading] = useState<number | null>(
     null
   );
+  const [dayAdvice, setDayAdvice] = useState<
+    Record<
+      number,
+      {
+        summary: string;
+        recommendations: {
+          place_name: string;
+          reason: string;
+          insert_after_order: number;
+        }[];
+      }
+    >
+  >({});
+  const [adviceLoading, setAdviceLoading] = useState<number | null>(null);
   const [optimizing, setOptimizing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
@@ -290,6 +304,88 @@ export default function Home() {
     } finally {
       setRecommendLoading(null);
     }
+  };
+
+  const loadDayAdvice = async (route: DayRoute) => {
+    setAdviceLoading(route.day);
+
+    try {
+      let recs = recommendations[route.day];
+
+      if (!recs) {
+        const lat =
+          route.stops.reduce((sum, s) => sum + s.place.lat, 0) /
+          route.stops.length;
+        const lng =
+          route.stops.reduce((sum, s) => sum + s.place.lng, 0) /
+          route.stops.length;
+
+        const [restaurantRes, cafeRes] = await Promise.all([
+          axios.get(`${BACKEND_URL}/api/recommend`, {
+            params: { lat, lng, category: "맛집", display: 5 },
+          }),
+          axios.get(`${BACKEND_URL}/api/recommend`, {
+            params: { lat, lng, category: "카페", display: 5 },
+          }),
+        ]);
+
+        recs = { 맛집: restaurantRes.data.items, 카페: cafeRes.data.items };
+        setRecommendations((prev) => ({ ...prev, [route.day]: recs! }));
+      }
+
+      const res = await axios.post(`${BACKEND_URL}/api/day-advice`, {
+        route,
+        restaurant_candidates: recs["맛집"] ?? [],
+        cafe_candidates: recs["카페"] ?? [],
+      });
+
+      setDayAdvice((prev) => ({ ...prev, [route.day]: res.data }));
+    } finally {
+      setAdviceLoading(null);
+    }
+  };
+
+  const reorderStops = async (
+    route: DayRoute,
+    fromIndex: number,
+    toIndex: number
+  ) => {
+    if (fromIndex === toIndex) return;
+
+    const newStops = [...route.stops];
+    const [moved] = newStops.splice(fromIndex, 1);
+    newStops.splice(toIndex, 0, moved);
+
+    const orderedPlaces = newStops.map((s) => s.place);
+
+    try {
+      const res = await axios.post(`${BACKEND_URL}/api/reorder-day`, {
+        day: route.day,
+        places: orderedPlaces,
+        start_place: route.start_place ?? null,
+        end_place: route.end_place ?? null,
+        start_hour: 9,
+      });
+
+      setRoutes((prev) =>
+        prev.map((r) => (r.day === route.day ? res.data : r))
+      );
+      showToast(`${route.day}일차 동선을 반영했어요`);
+    } catch {
+      showToast("순서 변경에 실패했어요");
+    }
+  };
+
+  const applyAdviceRecommendation = (day: number, placeName: string) => {
+    const recs = recommendations[day];
+    if (!recs) return;
+
+    const candidate = [...(recs["맛집"] ?? []), ...(recs["카페"] ?? [])].find(
+      (item) => item.name === placeName
+    );
+    if (!candidate) return;
+
+    addRecommendedPlace(candidate, day);
   };
 
   const addRecommendedPlace = (item: any, day: number) => {
@@ -644,8 +740,30 @@ export default function Home() {
               </div>
 
               <ol className="stop-list">
-                {route.stops.map((stop) => (
-                  <li key={stop.order} className="stop-item">
+                {route.stops.map((stop, idx) => (
+                  <li
+                    key={stop.order}
+                    className="stop-item"
+                    draggable
+                    title="드래그해서 순서 변경"
+                    style={{ cursor: "grab" }}
+                    onDragStart={(e) => {
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData(
+                        "text/plain",
+                        `${route.day}:${idx}`
+                      );
+                    }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const [dayStr, fromIdxStr] = e.dataTransfer
+                        .getData("text/plain")
+                        .split(":");
+                      if (Number(dayStr) !== route.day) return;
+                      reorderStops(route, Number(fromIdxStr), idx);
+                    }}
+                  >
                     <span className="stop-order">{stop.order}</span>
                     <span>
                       {placeIcon(stop.place.type)} <b>{stop.place.name}</b>
@@ -665,6 +783,46 @@ export default function Home() {
                   ? "추천 불러오는 중..."
                   : "이 날 주변 추천 보기"}
               </button>
+
+              <button
+                className="btn-sm"
+                style={{ marginTop: 8 }}
+                onClick={() => loadDayAdvice(route)}
+                disabled={adviceLoading === route.day}
+              >
+                {adviceLoading === route.day
+                  ? "AI 분석 중..."
+                  : "🤖 AI 추천 받기"}
+              </button>
+
+              {dayAdvice[route.day] && (
+                <div style={{ marginTop: 10 }}>
+                  <p className="hint" style={{ marginTop: 0 }}>
+                    {dayAdvice[route.day].summary}
+                  </p>
+                  {dayAdvice[route.day].recommendations.length === 0 ? (
+                    <p className="hint">추가로 추천할 만한 곳이 없어요.</p>
+                  ) : (
+                    dayAdvice[route.day].recommendations.map((rec, idx) => (
+                      <div key={idx} className="result-card">
+                        <b>{rec.place_name}</b>
+                        <div className="meta">{rec.reason}</div>
+                        <button
+                          className="btn-sm"
+                          onClick={() =>
+                            applyAdviceRecommendation(
+                              route.day,
+                              rec.place_name
+                            )
+                          }
+                        >
+                          이 장소 추가
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
 
               {recommendations[route.day] && (
                 <div>

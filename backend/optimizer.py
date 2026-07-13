@@ -526,6 +526,41 @@ def build_day_route(
     route = two_opt(route, matrix, start=start_place, end=end_place)
     route = insert_meal_places(route, matrix, start_place, start_hour)
 
+    return finalize_day_route(day, route, start_place, end_place, start_hour, matrix)
+
+
+def build_day_route_from_order(
+    day: int,
+    ordered_places: List[Place],
+    start_place: Place | None,
+    end_place: Place | None,
+    start_hour: int,
+) -> DayRoute:
+    """
+    사용자가 지도/목록에서 드래그로 직접 정한 순서를 그대로 써서 route를 만든다.
+    nearest-neighbor/2-opt로 다시 정렬하지 않고, 그 순서 기준으로
+    거리/시간/실제 도로 path만 새로 계산한다.
+    """
+    anchor_points = [p for p in [start_place, end_place] if p is not None]
+    matrix = DistanceMatrix(anchor_points + ordered_places)
+
+    return finalize_day_route(day, ordered_places, start_place, end_place, start_hour, matrix)
+
+
+def finalize_day_route(
+    day: int,
+    route: List[Place],
+    start_place: Place | None,
+    end_place: Place | None,
+    start_hour: int,
+    matrix: "DistanceMatrix",
+) -> DayRoute:
+    """
+    이미 순서가 정해진 route(방문 순서)를 받아 도착 시각/거리/실제 도로
+    path를 계산해서 DayRoute로 조립한다. 순서를 정하는 로직(2-opt 등)과
+    조립하는 로직을 분리해서, 자동 최적화 경로와 사용자가 수동으로 정한
+    경로 둘 다 같은 방식으로 조립되게 한다.
+    """
     stops = []
     current_min = 0
     current_place = start_place

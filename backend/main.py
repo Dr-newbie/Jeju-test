@@ -6,10 +6,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from models import TripRequest, TripRouteResponse, Place, DayRoute
-from optimizer import optimize_trip, infer_place_type
+from optimizer import optimize_trip, infer_place_type, build_day_route_from_order
 from naver_api import search_local_place, geocode_address, recommend_nearby
 from naver_import import fetch_naver_shared_bookmarks, parse_naver_bookmarks
 from db import init_db, save_shared_route, get_shared_route
+from llm_advisor import get_day_advice
 
 app = FastAPI(title="Travel Route Planner MVP")
 
@@ -127,6 +128,53 @@ def recommend(lat: float, lng: float, category: str, display: int = 5):
     try:
         items = recommend_nearby(lat=lat, lng=lng, category=category, display=display)
         return {"items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class ReorderDayRequest(BaseModel):
+    day: int
+    places: List[Place]
+    start_place: Place | None = None
+    end_place: Place | None = None
+    start_hour: int = 9
+
+
+@app.post("/api/reorder-day", response_model=DayRoute)
+def reorder_day(req: ReorderDayRequest):
+    """
+    사용자가 드래그로 정한 방문 순서를 그대로 써서 그날 route를 다시 조립한다.
+    """
+    try:
+        return build_day_route_from_order(
+            day=req.day,
+            ordered_places=req.places,
+            start_place=req.start_place,
+            end_place=req.end_place,
+            start_hour=req.start_hour,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class DayAdviceRequest(BaseModel):
+    route: DayRoute
+    restaurant_candidates: List[dict] = []
+    cafe_candidates: List[dict] = []
+
+
+@app.post("/api/day-advice")
+def day_advice(req: DayAdviceRequest):
+    """
+    하루 경로 + 주변 식당/카페 후보를 Claude에 보내서 끼워 넣을 만한
+    곳과 이유를 추천받는다.
+    """
+    try:
+        return get_day_advice(
+            route=req.route,
+            restaurant_candidates=req.restaurant_candidates,
+            cafe_candidates=req.cafe_candidates,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
