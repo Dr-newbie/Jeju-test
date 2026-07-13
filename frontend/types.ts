@@ -12,6 +12,7 @@ export type Place = {
   duration_min?: number;
   meal_slot?: "breakfast" | "lunch" | "dinner" | null;
   food_category?: string | null;
+  preferred_time?: string | null;
 };
 
 export type RouteStop = {

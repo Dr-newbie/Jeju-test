@@ -445,6 +445,12 @@ def _best_insert_index(
     return min(scored, key=lambda s: s[2])[0]
 
 
+def _parse_time_to_minutes(t: str) -> int:
+    """'HH:MM' -> 자정 기준 분(minute)."""
+    h, m = t.split(":")
+    return int(h) * 60 + int(m)
+
+
 def insert_meal_places(
     route: List[Place],
     matrix: DistanceMatrix,
@@ -518,13 +524,27 @@ def build_day_route(
 ) -> DayRoute:
     """
     하루 route 생성. 실제 도로 거리/시간(NCP Directions)을 기준으로 짠다.
+    preferred_time이 지정된 장소는 nearest-neighbor/2-opt 대상에서 빼고,
+    그 시간대(±30분) 근처 위치에 따로 끼워 넣는다.
     """
     anchor_points = [p for p in [start_place, end_place] if p is not None]
     matrix = DistanceMatrix(anchor_points + day_places)
 
-    route = nearest_neighbor_route(start_place, day_places, matrix)
+    timed_places = sorted(
+        (p for p in day_places if p.preferred_time),
+        key=lambda p: _parse_time_to_minutes(p.preferred_time),
+    )
+    untimed_places = [p for p in day_places if not p.preferred_time]
+
+    route = nearest_neighbor_route(start_place, untimed_places, matrix)
     route = two_opt(route, matrix, start=start_place, end=end_place)
     route = insert_meal_places(route, matrix, start_place, start_hour)
+
+    for p in timed_places:
+        target = _parse_time_to_minutes(p.preferred_time)
+        window = (target - 30, target + 30)
+        idx = _best_insert_index(route, p, matrix, start_place, start_hour, window)
+        route.insert(idx, p)
 
     return finalize_day_route(day, route, start_place, end_place, start_hour, matrix)
 

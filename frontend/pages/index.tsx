@@ -262,6 +262,12 @@ export default function Home() {
     );
   };
 
+  const updatePlaceTime = (id: string, time: string | null) => {
+    setPlaces((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, preferred_time: time } : p))
+    );
+  };
+
   const shareRoute = async () => {
     setSharing(true);
     try {
@@ -565,6 +571,10 @@ export default function Home() {
         <div className="section-title">
           <span className="step">3</span>저장된 장소
         </div>
+        <p className="hint" style={{ marginTop: -4 }}>
+          시간 아이콘에 방문 희망 시간을 넣으면 루트 생성 시 그 시간대
+          근처에 배치돼요.
+        </p>
         {placesByType.map((group) => (
           <div key={group.value} className="place-group">
             <div className="place-group-title">
@@ -615,6 +625,15 @@ export default function Home() {
                         <option value="dinner">저녁</option>
                       </select>
                     )}
+
+                    <input
+                      type="time"
+                      value={p.preferred_time ?? ""}
+                      title="희망 방문 시간 (선택)"
+                      onChange={(e) =>
+                        updatePlaceTime(p.id, e.target.value || null)
+                      }
+                    />
 
                     <button
                       className="btn-danger btn-sm"

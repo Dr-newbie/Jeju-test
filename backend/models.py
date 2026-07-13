@@ -35,6 +35,10 @@ class Place(BaseModel):
     open_time: Optional[str] = None
     close_time: Optional[str] = None
 
+    # 사용자가 지정한 "이 시간쯤 방문하고 싶다" (HH:MM, 24시간제).
+    # 지정하면 동선 최적화 시 이 시간대 근처에 배치된다.
+    preferred_time: Optional[str] = None
+
 
 class TripRequest(BaseModel):
     places: List[Place]
