@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
 import axios from "axios";
 import dynamic from "next/dynamic";
 import type { Place, DayRoute } from "../types";
@@ -29,6 +30,7 @@ function accommodationDays(numDays: number): number[] {
 }
 
 export default function Home() {
+  const router = useRouter();
   const [region, setRegion] = useState<RegionId>(DEFAULT_REGION);
   const regionConfig = REGION_CONFIGS[region];
   const PLACE_TYPES = getPlaceTypes(regionConfig.anchorLabel);
@@ -87,6 +89,56 @@ export default function Home() {
     setToast(message);
     window.setTimeout(() => setToast(null), 2200);
   };
+
+  useEffect(() => {
+    if (!router.isReady) return;
+
+    const importId = router.query.import;
+    if (!importId || typeof importId !== "string") return;
+
+    axios
+      .get(`${BACKEND_URL}/api/routes/share/${importId}`)
+      .then((res) => {
+        const data = res.data;
+        const importedRoutes: DayRoute[] = data.routes ?? [];
+        const importedNumDays: number = data.num_days ?? importedRoutes.length;
+        const importedRegion: RegionId =
+          data.region && data.region in REGION_CONFIGS
+            ? data.region
+            : DEFAULT_REGION;
+
+        setRegion(importedRegion);
+        setPlaces(data.places ?? []);
+        setNumDays(importedNumDays);
+        setRoutes(importedRoutes);
+
+        const firstStart = importedRoutes[0]?.start_place;
+        if (firstStart?.type === "airport") {
+          setAirportId(firstStart.id);
+        }
+
+        const importedAccommodationByDay: Record<number, string> = {};
+        importedRoutes.forEach((route, idx) => {
+          const day = idx + 1;
+          if (day >= importedNumDays) return;
+          if (route.end_place?.type === "accommodation") {
+            importedAccommodationByDay[day] = route.end_place.id;
+          }
+        });
+        setAccommodationByDay(importedAccommodationByDay);
+
+        setShareUrl(null);
+        setSearchResults([]);
+        setRecommendations({});
+        setDayAdvice({});
+        showToast("공유된 루트를 가져왔어요");
+      })
+      .catch(() => showToast("공유 링크를 가져오지 못했어요"))
+      .finally(() => {
+        router.replace("/", undefined, { shallow: true });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router.isReady, router.query.import]);
 
   const handleRegionChange = (newRegion: RegionId) => {
     const cfg = REGION_CONFIGS[newRegion];

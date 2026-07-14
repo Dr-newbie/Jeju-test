@@ -74,6 +74,17 @@ export default function SharedRoute() {
         <div className="subtitle">{subtitle}</div>
       </div>
 
+      {typeof id === "string" && (
+        <div className="card">
+          <button
+            className="btn-primary"
+            onClick={() => router.push(`/?import=${id}`)}
+          >
+            ✏️ 이 루트 가져와서 편집하기
+          </button>
+        </div>
+      )}
+
       <section className="card">
         <div className="map-wrap">
           <NaverMap
