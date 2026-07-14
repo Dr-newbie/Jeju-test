@@ -542,6 +542,29 @@ def build_day_route(
     return finalize_day_route(day, route, start_place, end_place, start_hour, matrix)
 
 
+def insert_place_into_day(
+    day: int,
+    ordered_places: List[Place],
+    new_place: Place,
+    start_place: Place | None,
+    end_place: Place | None,
+    start_hour: int,
+) -> DayRoute:
+    """
+    이미 만들어진 하루 route(ordered_places)에 새 장소 하나만 거리 증가가
+    가장 적은 위치로 끼워 넣는다. 기존 순서는 그대로 유지하고, 다른
+    날짜에는 전혀 영향을 주지 않는다.
+    """
+    anchor_points = [p for p in [start_place, end_place] if p is not None]
+    matrix = DistanceMatrix(anchor_points + ordered_places + [new_place])
+
+    idx = _best_insert_index(ordered_places, new_place, matrix, start_place, start_hour)
+    new_route = ordered_places[:]
+    new_route.insert(idx, new_place)
+
+    return finalize_day_route(day, new_route, start_place, end_place, start_hour, matrix)
+
+
 def build_day_route_from_order(
     day: int,
     ordered_places: List[Place],

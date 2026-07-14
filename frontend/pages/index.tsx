@@ -49,6 +49,7 @@ export default function Home() {
   const [routes, setRoutes] = useState<DayRoute[]>([]);
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [insertDay, setInsertDay] = useState(1);
   const [airportId, setAirportId] = useState<string>(
     REGION_CONFIGS[DEFAULT_REGION].defaultAnchorId
   );
@@ -286,6 +287,8 @@ export default function Home() {
       params: { query: item.address },
     });
 
+    const targetRoute = routes.find((r) => r.day === insertDay);
+
     const newPlace: Place = {
       id: `place_${Date.now()}`,
       name: item.name,
@@ -296,13 +299,32 @@ export default function Home() {
       naver_category: item.category,
       priority: 3,
       must_visit: false,
-      preferred_day: null,
+      preferred_day: targetRoute ? targetRoute.day : null,
       duration_min: 60,
     };
 
+    if (targetRoute) {
+      const res = await axios.post(`${BACKEND_URL}/api/insert-place`, {
+        day: targetRoute.day,
+        places: targetRoute.stops.map((s) => s.place),
+        new_place: newPlace,
+        start_place: targetRoute.start_place ?? null,
+        end_place: targetRoute.end_place ?? null,
+        start_hour: 9,
+      });
+
+      setRoutes((prev) =>
+        prev.map((r) => (r.day === targetRoute.day ? res.data : r))
+      );
+    }
+
     setPlaces((prev) => [...prev, newPlace]);
     setSearchResults([]);
-    showToast(`"${newPlace.name}" 추가했어요`);
+    showToast(
+      targetRoute
+        ? `"${newPlace.name}"을(를) ${targetRoute.day}일차에 추가했어요`
+        : `"${newPlace.name}" 추가했어요`
+    );
   };
 
   const importNaverFavorites = async () => {
@@ -586,6 +608,22 @@ export default function Home() {
             검색
           </button>
         </div>
+
+        {routes.length > 0 && (
+          <label style={{ display: "block", marginTop: 10 }}>
+            추가할 날짜
+            <select
+              value={insertDay}
+              onChange={(e) => setInsertDay(Number(e.target.value))}
+            >
+              {routes.map((r) => (
+                <option key={r.day} value={r.day}>
+                  {r.day}일차
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         {searchResults.length > 0 && (
           <div style={{ marginTop: 12 }}>

@@ -6,7 +6,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 
 from models import TripRequest, TripRouteResponse, Place, DayRoute
-from optimizer import optimize_trip, infer_place_type, build_day_route_from_order
+from optimizer import (
+    optimize_trip,
+    infer_place_type,
+    build_day_route_from_order,
+    insert_place_into_day,
+)
 from naver_api import search_local_place, geocode_address, recommend_nearby
 from naver_import import fetch_naver_shared_bookmarks, parse_naver_bookmarks
 from db import init_db, save_shared_route, get_shared_route, update_shared_route
@@ -152,6 +157,39 @@ def reorder_day(req: ReorderDayRequest):
         return build_day_route_from_order(
             day=req.day,
             ordered_places=req.places,
+            start_place=req.start_place,
+            end_place=req.end_place,
+            start_hour=req.start_hour,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class InsertPlaceRequest(BaseModel):
+    day: int
+    places: List[Place]
+    new_place: Place
+    start_place: Place | None = None
+    end_place: Place | None = None
+    start_hour: int = 9
+
+
+@app.post("/api/insert-place", response_model=DayRoute)
+def insert_place(req: InsertPlaceRequest):
+    """
+    특정 날짜의 기존 route에 새 장소 하나만 끼워 넣는다. 다른 날짜의
+    route는 건드리지 않는다.
+    """
+    new_place = req.new_place
+    if new_place.type == "etc":
+        inferred = infer_place_type(new_place.naver_category)
+        new_place = new_place.model_copy(update={"type": inferred})
+
+    try:
+        return insert_place_into_day(
+            day=req.day,
+            ordered_places=req.places,
+            new_place=new_place,
             start_place=req.start_place,
             end_place=req.end_place,
             start_hour=req.start_hour,
