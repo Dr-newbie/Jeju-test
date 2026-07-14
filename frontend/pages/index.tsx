@@ -29,6 +29,12 @@ function accommodationDays(numDays: number): number[] {
   return Array.from({ length: Math.max(0, numDays - 1) }, (_, i) => i + 1);
 }
 
+function extractShareId(input: string): string | null {
+  const withoutQuery = input.trim().split(/[?#]/)[0];
+  const parts = withoutQuery.split("/").filter(Boolean);
+  return parts[parts.length - 1] || null;
+}
+
 export default function Home() {
   const router = useRouter();
   const [region, setRegion] = useState<RegionId>(DEFAULT_REGION);
@@ -78,6 +84,8 @@ export default function Home() {
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
   const [naverShareUrl, setNaverShareUrl] = useState("");
   const [importing, setImporting] = useState(false);
+  const [importLinkInput, setImportLinkInput] = useState("");
+  const [importingLink, setImportingLink] = useState(false);
 
   const accommodations = places.filter((p) => p.type === "accommodation");
   const placesByType = PLACE_TYPES.map((t) => ({
@@ -90,55 +98,71 @@ export default function Home() {
     window.setTimeout(() => setToast(null), 2200);
   };
 
+  const importSharedRoute = async (shareId: string) => {
+    const res = await axios.get(`${BACKEND_URL}/api/routes/share/${shareId}`);
+    const data = res.data;
+    const importedRoutes: DayRoute[] = data.routes ?? [];
+    const importedNumDays: number = data.num_days ?? importedRoutes.length;
+    const importedRegion: RegionId =
+      data.region && data.region in REGION_CONFIGS
+        ? data.region
+        : DEFAULT_REGION;
+
+    setRegion(importedRegion);
+    setPlaces(data.places ?? []);
+    setNumDays(importedNumDays);
+    setRoutes(importedRoutes);
+
+    const firstStart = importedRoutes[0]?.start_place;
+    if (firstStart?.type === "airport") {
+      setAirportId(firstStart.id);
+    }
+
+    const importedAccommodationByDay: Record<number, string> = {};
+    importedRoutes.forEach((route, idx) => {
+      const day = idx + 1;
+      if (day >= importedNumDays) return;
+      if (route.end_place?.type === "accommodation") {
+        importedAccommodationByDay[day] = route.end_place.id;
+      }
+    });
+    setAccommodationByDay(importedAccommodationByDay);
+
+    setShareUrl(null);
+    setSearchResults([]);
+    setRecommendations({});
+    setDayAdvice({});
+    showToast("공유된 루트를 가져왔어요");
+  };
+
   useEffect(() => {
     if (!router.isReady) return;
 
     const importId = router.query.import;
     if (!importId || typeof importId !== "string") return;
 
-    axios
-      .get(`${BACKEND_URL}/api/routes/share/${importId}`)
-      .then((res) => {
-        const data = res.data;
-        const importedRoutes: DayRoute[] = data.routes ?? [];
-        const importedNumDays: number = data.num_days ?? importedRoutes.length;
-        const importedRegion: RegionId =
-          data.region && data.region in REGION_CONFIGS
-            ? data.region
-            : DEFAULT_REGION;
-
-        setRegion(importedRegion);
-        setPlaces(data.places ?? []);
-        setNumDays(importedNumDays);
-        setRoutes(importedRoutes);
-
-        const firstStart = importedRoutes[0]?.start_place;
-        if (firstStart?.type === "airport") {
-          setAirportId(firstStart.id);
-        }
-
-        const importedAccommodationByDay: Record<number, string> = {};
-        importedRoutes.forEach((route, idx) => {
-          const day = idx + 1;
-          if (day >= importedNumDays) return;
-          if (route.end_place?.type === "accommodation") {
-            importedAccommodationByDay[day] = route.end_place.id;
-          }
-        });
-        setAccommodationByDay(importedAccommodationByDay);
-
-        setShareUrl(null);
-        setSearchResults([]);
-        setRecommendations({});
-        setDayAdvice({});
-        showToast("공유된 루트를 가져왔어요");
-      })
+    importSharedRoute(importId)
       .catch(() => showToast("공유 링크를 가져오지 못했어요"))
       .finally(() => {
         router.replace("/", undefined, { shallow: true });
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router.isReady, router.query.import]);
+
+  const handleImportLink = async () => {
+    const shareId = extractShareId(importLinkInput);
+    if (!shareId) return;
+
+    setImportingLink(true);
+    try {
+      await importSharedRoute(shareId);
+      setImportLinkInput("");
+    } catch {
+      showToast("공유 링크를 가져오지 못했어요");
+    } finally {
+      setImportingLink(false);
+    }
+  };
 
   const handleRegionChange = (newRegion: RegionId) => {
     const cfg = REGION_CONFIGS[newRegion];
@@ -462,6 +486,28 @@ export default function Home() {
         <div className="title">{regionConfig.titleCopy}</div>
         <div className="subtitle">{regionConfig.subtitleCopy}</div>
       </div>
+
+      <section className="card">
+        <div className="section-title">🔗 공유 링크로 가져오기</div>
+        <p className="hint" style={{ marginTop: -4 }}>
+          친구가 보내준 공유 링크나 코드를 붙여넣으면 그 루트를 그대로
+          가져와서 편집할 수 있어요.
+        </p>
+        <div className="search-row">
+          <input
+            value={importLinkInput}
+            onChange={(e) => setImportLinkInput(e.target.value)}
+            placeholder="https://.../shared/xxxxxx 또는 코드만 입력"
+          />
+          <button
+            className="btn-primary"
+            onClick={handleImportLink}
+            disabled={importingLink || !importLinkInput.trim()}
+          >
+            {importingLink ? "가져오는 중..." : "가져오기"}
+          </button>
+        </div>
+      </section>
 
       <section className="card">
         <div className="section-title">
