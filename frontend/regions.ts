@@ -10,6 +10,7 @@ export type RegionConfig = {
   sharedTitleCopy: string;
   sharedSubtitleCopy: string;
   anchorLabel: string;
+  anchorIcon: string;
   defaultAnchorId: string;
   defaultAccommodationId: string;
   samplePlaces: Place[];
@@ -26,6 +27,7 @@ export const REGION_CONFIGS: Record<RegionId, RegionConfig> = {
     sharedTitleCopy: "🍊 공유된 제주 여행 루트",
     sharedSubtitleCopy: "다른 사람이 만든 제주 여행 코스예요",
     anchorLabel: "공항",
+    anchorIcon: "✈️",
     defaultAnchorId: "airport_1",
     defaultAccommodationId: "hotel_1",
     samplePlaces: [
@@ -112,6 +114,7 @@ export const REGION_CONFIGS: Record<RegionId, RegionConfig> = {
     sharedTitleCopy: "🏔️ 공유된 강원 여행 루트",
     sharedSubtitleCopy: "다른 사람이 만든 강원 여행 코스예요",
     anchorLabel: "출발/도착 기준지",
+    anchorIcon: "🚙",
     defaultAnchorId: "airport_1",
     defaultAccommodationId: "hotel_1",
     samplePlaces: [

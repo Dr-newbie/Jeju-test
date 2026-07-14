@@ -2,7 +2,7 @@ import { useState } from "react";
 import axios from "axios";
 import dynamic from "next/dynamic";
 import type { Place, DayRoute } from "../types";
-import { DAY_COLORS, placeIcon } from "../constants";
+import { DAY_COLORS, PLACE_TYPE_META, placeIcon } from "../constants";
 import { REGION_CONFIGS, DEFAULT_REGION, type RegionId } from "../regions";
 
 const NaverMap = dynamic(() => import("../components/NaverMap"), {
@@ -14,20 +14,18 @@ const RECOMMEND_CATEGORIES = ["맛집", "카페", "관광지"];
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5001";
 
-const BASE_PLACE_TYPES: { value: string; label: string }[] = [
-  { value: "etc", label: "미분류" },
-  { value: "tourist_spot", label: "관광지" },
-  { value: "restaurant", label: "식당" },
-  { value: "cafe", label: "카페" },
-  { value: "shopping", label: "쇼핑" },
-  { value: "accommodation", label: "숙소" },
-  { value: "airport", label: "공항" },
-];
+const BASE_PLACE_TYPES: { value: string; label: string }[] = Object.entries(
+  PLACE_TYPE_META
+).map(([value, meta]) => ({ value, label: meta.label }));
 
 function getPlaceTypes(anchorLabel: string) {
   return BASE_PLACE_TYPES.map((t) =>
     t.value === "airport" ? { ...t, label: anchorLabel } : t
   );
+}
+
+function accommodationDays(numDays: number): number[] {
+  return Array.from({ length: Math.max(0, numDays - 1) }, (_, i) => i + 1);
 }
 
 export default function Home() {
@@ -95,11 +93,10 @@ export default function Home() {
     setRegion(newRegion);
     setPlaces(cfg.samplePlaces);
     setAirportId(cfg.defaultAnchorId);
+    setNumDays(3);
     setAccommodationByDay(
       Object.fromEntries(
-        Array.from({ length: Math.max(0, numDays - 1) }, (_, i) => i + 1).map(
-          (day) => [day, cfg.defaultAccommodationId]
-        )
+        accommodationDays(3).map((day) => [day, cfg.defaultAccommodationId])
       )
     );
     setRoutes([]);
@@ -398,7 +395,7 @@ export default function Home() {
           <select
             value={region}
             onChange={(e) => handleRegionChange(e.target.value as RegionId)}
-            disabled={optimizing}
+            disabled={optimizing || sharing}
           >
             {Object.values(REGION_CONFIGS).map((cfg) => (
               <option key={cfg.id} value={cfg.id}>
@@ -522,7 +519,7 @@ export default function Home() {
         </p>
 
         <div className="day-accommodation-list">
-          {Array.from({ length: Math.max(0, numDays - 1) }, (_, i) => i + 1).map((day) => (
+          {accommodationDays(numDays).map((day) => (
             <label key={day}>
               {day}일차 숙소
               <select
@@ -563,13 +560,15 @@ export default function Home() {
         {placesByType.map((group) => (
           <div key={group.value} className="place-group">
             <div className="place-group-title">
-              {placeIcon(group.value)} {group.label}
+              {placeIcon(group.value, regionConfig.anchorIcon)} {group.label}
               <span className="place-group-count">{group.items.length}</span>
             </div>
 
             {group.items.map((p) => (
               <div key={p.id} className="place-row">
-                <span className="place-icon">{placeIcon(p.type)}</span>
+                <span className="place-icon">
+                  {placeIcon(p.type, regionConfig.anchorIcon)}
+                </span>
                 <div className="place-body">
                   <span className="place-info">
                     {p.name}{" "}
@@ -770,7 +769,8 @@ export default function Home() {
                   >
                     <span className="stop-order">{stop.order}</span>
                     <span>
-                      {placeIcon(stop.place.type)} <b>{stop.place.name}</b>
+                      {placeIcon(stop.place.type, regionConfig.anchorIcon)}{" "}
+                      <b>{stop.place.name}</b>
                       <span className="stop-meta">{stop.note}</span>
                     </span>
                   </li>

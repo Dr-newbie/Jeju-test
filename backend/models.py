@@ -1,6 +1,8 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List, Literal
 
+from regions import RegionId
+
 
 PlaceType = Literal[
     "accommodation",
@@ -49,7 +51,7 @@ class TripRequest(BaseModel):
     accommodation_by_day: Optional[dict[int, str]] = None
     must_place_by_day: Optional[dict[int, List[str]]] = None
     airport_id: Optional[str] = None
-    region: str = "jeju"
+    region: RegionId = "jeju"
 
 
 class RouteStop(BaseModel):

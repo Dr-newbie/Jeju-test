@@ -11,7 +11,7 @@ from naver_api import search_local_place, geocode_address, recommend_nearby
 from naver_import import fetch_naver_shared_bookmarks, parse_naver_bookmarks
 from db import init_db, save_shared_route, get_shared_route
 from llm_advisor import get_day_advice
-from regions import get_region_config
+from regions import get_region_config, RegionId
 
 app = FastAPI(title="Travel Route Planner MVP")
 
@@ -41,7 +41,7 @@ def health_check():
 
 
 @app.get("/api/search-place")
-def search_place(query: str, region: str = "jeju"):
+def search_place(query: str, region: RegionId = "jeju"):
     """
     네이버 지역 검색 API로 장소 후보 검색.
     이 서비스는 지역별 여행 플래너라 검색 범위를 선택된 지역으로 한정한다.
@@ -164,7 +164,7 @@ class DayAdviceRequest(BaseModel):
     route: DayRoute
     restaurant_candidates: List[dict] = []
     cafe_candidates: List[dict] = []
-    region: str = "jeju"
+    region: RegionId = "jeju"
 
 
 @app.post("/api/day-advice")
@@ -188,7 +188,7 @@ class ShareRouteRequest(BaseModel):
     places: List[Place]
     num_days: int
     routes: List[DayRoute]
-    region: str = "jeju"
+    region: RegionId = "jeju"
 
 
 @app.post("/api/routes/share")

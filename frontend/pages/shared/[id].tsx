@@ -32,7 +32,7 @@ export default function SharedRoute() {
       .get(`${BACKEND_URL}/api/routes/share/${id}`)
       .then((res) => {
         setRoutes(res.data.routes);
-        setRegion(res.data.region ?? null);
+        setRegion(res.data.region ?? "jeju");
       })
       .catch(() => setError("공유된 경로를 찾을 수 없습니다."));
   }, [id]);
@@ -119,7 +119,8 @@ export default function SharedRoute() {
                   <li key={stop.order} className="stop-item">
                     <span className="stop-order">{stop.order}</span>
                     <span>
-                      {placeIcon(stop.place.type)} <b>{stop.place.name}</b>
+                      {placeIcon(stop.place.type, cfg?.anchorIcon)}{" "}
+                      <b>{stop.place.name}</b>
                       <span className="stop-meta">{stop.note}</span>
                     </span>
                   </li>

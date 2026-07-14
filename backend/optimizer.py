@@ -8,7 +8,7 @@ from sklearn.cluster import KMeans
 
 from models import Place, DayRoute, RouteStop, LatLng
 from naver_api import get_driving_route
-from regions import get_region_config
+from regions import get_region_config, RegionId
 
 
 def haversine_km(a: Place, b: Place) -> float:
@@ -219,8 +219,8 @@ def choose_accommodation_for_day(
 def assign_places_to_days(
     places: List[Place],
     num_days: int,
+    region_seeds: list[tuple[float, float]],
     must_place_by_day: dict[int, List[str]] | None = None,
-    region_seeds: list[tuple[float, float]] | None = None,
 ) -> Dict[int, List[Place]]:
     """
     장소를 N일차에 배정.
@@ -265,10 +265,8 @@ def assign_places_to_days(
 
     coords = np.array([[p.lat, p.lng] for p in remaining])
 
-    seeds = region_seeds or get_region_config(None).region_seeds
-
-    if num_days <= len(seeds):
-        init = np.array(select_region_seeds(num_days, seeds))
+    if num_days <= len(region_seeds):
+        init = np.array(select_region_seeds(num_days, region_seeds))
         kmeans = KMeans(n_clusters=num_days, init=init, n_init=1)
     else:
         kmeans = KMeans(n_clusters=num_days, random_state=42, n_init="auto")
@@ -651,7 +649,7 @@ def optimize_trip(
     accommodation_by_day: dict[int, str] | None = None,
     must_place_by_day: dict[int, List[str]] | None = None,
     airport_id: str | None = None,
-    region: str = "jeju",
+    region: RegionId = "jeju",
 ) -> List[DayRoute]:
     cfg = get_region_config(region)
 

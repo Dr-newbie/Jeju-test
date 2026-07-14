@@ -8,7 +8,6 @@ DEFAULT_REGION: RegionId = "jeju"
 
 @dataclass(frozen=True)
 class RegionConfig:
-    id: RegionId
     display_name: str
     search_keyword: str
     dinner_keywords: list[str]
@@ -17,7 +16,6 @@ class RegionConfig:
 
 REGION_CONFIGS: dict[RegionId, RegionConfig] = {
     "jeju": RegionConfig(
-        id="jeju",
         display_name="제주",
         search_keyword="제주",
         dinner_keywords=["회", "횟집", "물회", "돼지", "흑돼지", "제주삼겹"],
@@ -32,8 +30,7 @@ REGION_CONFIGS: dict[RegionId, RegionConfig] = {
         ],
     ),
     "gangwon": RegionConfig(
-        id="gangwon",
-        display_name="강원",
+        display_name="강원도",
         search_keyword="강원",
         dinner_keywords=["막국수", "닭갈비", "곤드레", "황태", "순두부"],
         region_seeds=[
@@ -50,5 +47,5 @@ REGION_CONFIGS: dict[RegionId, RegionConfig] = {
 }
 
 
-def get_region_config(region_id: str | None) -> RegionConfig:
-    return REGION_CONFIGS.get(region_id, REGION_CONFIGS[DEFAULT_REGION])
+def get_region_config(region_id: RegionId) -> RegionConfig:
+    return REGION_CONFIGS[region_id]

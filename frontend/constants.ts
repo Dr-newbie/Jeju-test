@@ -17,6 +17,7 @@ export const PLACE_TYPE_META: Record<string, { label: string; icon: string }> = 
   airport: { label: "공항", icon: "✈️" },
 };
 
-export function placeIcon(type: string): string {
+export function placeIcon(type: string, anchorIcon?: string): string {
+  if (type === "airport" && anchorIcon) return anchorIcon;
   return PLACE_TYPE_META[type]?.icon ?? "📍";
 }
