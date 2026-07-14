@@ -1,15 +1,15 @@
 import os
 from typing import List
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from models import TripRequest, TripRouteResponse, Place, DayRoute
 from optimizer import optimize_trip, infer_place_type, build_day_route_from_order
 from naver_api import search_local_place, geocode_address, recommend_nearby
 from naver_import import fetch_naver_shared_bookmarks, parse_naver_bookmarks
-from db import init_db, save_shared_route, get_shared_route
+from db import init_db, save_shared_route, get_shared_route, update_shared_route
 from llm_advisor import get_day_advice
 from regions import get_region_config, RegionId
 
@@ -206,3 +206,65 @@ def read_shared_route(route_id: str):
     if data is None:
         raise HTTPException(status_code=404, detail="Route not found")
     return data
+
+
+class ShareRoomManager:
+    """
+    공유 id 하나당 접속자들을 하나의 "방"으로 묶어서, 누가 수정한
+    내용을 같은 방의 나머지 접속자들에게 그대로 전달한다. 여러 워커/
+    프로세스로 스케일링하려면 Redis pub/sub 같은 공유 브로커가
+    필요하지만, 지금 규모에서는 프로세스 내 메모리로 충분하다.
+    """
+
+    def __init__(self) -> None:
+        self.rooms: dict[str, set[WebSocket]] = {}
+
+    async def connect(self, route_id: str, websocket: WebSocket) -> None:
+        await websocket.accept()
+        self.rooms.setdefault(route_id, set()).add(websocket)
+
+    def disconnect(self, route_id: str, websocket: WebSocket) -> None:
+        conns = self.rooms.get(route_id)
+        if not conns:
+            return
+        conns.discard(websocket)
+        if not conns:
+            del self.rooms[route_id]
+
+    async def broadcast(self, route_id: str, message: dict, exclude: WebSocket) -> None:
+        for conn in list(self.rooms.get(route_id, [])):
+            if conn is exclude:
+                continue
+            try:
+                await conn.send_json(message)
+            except Exception:
+                pass
+
+
+room_manager = ShareRoomManager()
+
+
+@app.websocket("/ws/routes/{route_id}")
+async def route_collaboration(websocket: WebSocket, route_id: str):
+    """
+    공유된 루트 하나를 여러 명이 동시에 편집할 때 쓰는 실시간 채널.
+    누군가 수정 사항을 보내면 DB에 저장하고, 같은 방의 다른 접속자들
+    에게 그대로 방송한다 (나중에 저장된 내용이 이긴다 - last write wins).
+    """
+    if get_shared_route(route_id) is None:
+        await websocket.close(code=4404)
+        return
+
+    await room_manager.connect(route_id, websocket)
+    try:
+        while True:
+            message = await websocket.receive_json()
+            try:
+                update = ShareRouteRequest(**message).model_dump()
+            except ValidationError:
+                continue
+
+            update_shared_route(route_id, update)
+            await room_manager.broadcast(route_id, update, exclude=websocket)
+    except WebSocketDisconnect:
+        room_manager.disconnect(route_id, websocket)

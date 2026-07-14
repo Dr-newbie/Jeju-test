@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import axios from "axios";
 import dynamic from "next/dynamic";
@@ -14,6 +14,7 @@ const RECOMMEND_CATEGORIES = ["맛집", "카페", "관광지"];
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5001";
+const WS_BACKEND_URL = BACKEND_URL.replace(/^http/, "ws");
 
 const BASE_PLACE_TYPES: { value: string; label: string }[] = Object.entries(
   PLACE_TYPE_META
@@ -59,6 +60,10 @@ export default function Home() {
   });
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [activeShareId, setActiveShareId] = useState<string | null>(null);
+  const [liveConnected, setLiveConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const skipNextBroadcast = useRef(false);
   const [recommendations, setRecommendations] = useState<
     Record<number, Record<string, any[]>>
   >({});
@@ -132,8 +137,59 @@ export default function Home() {
     setSearchResults([]);
     setRecommendations({});
     setDayAdvice({});
+    skipNextBroadcast.current = true;
+    setActiveShareId(shareId);
     showToast("공유된 루트를 가져왔어요");
   };
+
+  useEffect(() => {
+    if (!activeShareId) {
+      wsRef.current?.close();
+      wsRef.current = null;
+      setLiveConnected(false);
+      return;
+    }
+
+    const ws = new WebSocket(`${WS_BACKEND_URL}/ws/routes/${activeShareId}`);
+    wsRef.current = ws;
+
+    ws.onopen = () => setLiveConnected(true);
+    ws.onclose = () => setLiveConnected(false);
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      const importedRoutes: DayRoute[] = data.routes ?? [];
+      const importedRegion: RegionId =
+        data.region && data.region in REGION_CONFIGS
+          ? data.region
+          : DEFAULT_REGION;
+
+      skipNextBroadcast.current = true;
+      setPlaces(data.places ?? []);
+      setNumDays(data.num_days ?? importedRoutes.length);
+      setRoutes(importedRoutes);
+      setRegion(importedRegion);
+      showToast("다른 사람이 이 여행을 수정했어요");
+    };
+
+    return () => {
+      ws.close();
+      if (wsRef.current === ws) wsRef.current = null;
+    };
+  }, [activeShareId]);
+
+  useEffect(() => {
+    if (!activeShareId) return;
+    if (skipNextBroadcast.current) {
+      skipNextBroadcast.current = false;
+      return;
+    }
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ places, num_days: numDays, routes, region }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [places, numDays, routes, region, activeShareId]);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -179,6 +235,7 @@ export default function Home() {
     setSearchResults([]);
     setQuery("");
     setShareUrl(null);
+    setActiveShareId(null);
     setRecommendations({});
     setRecommendLoading(null);
     setDayAdvice({});
@@ -308,6 +365,11 @@ export default function Home() {
   };
 
   const shareRoute = async () => {
+    if (activeShareId) {
+      setShareUrl(`${window.location.origin}/shared/${activeShareId}`);
+      return;
+    }
+
     setSharing(true);
     try {
       const res = await axios.post(`${BACKEND_URL}/api/routes/share`, {
@@ -316,6 +378,7 @@ export default function Home() {
         routes,
         region,
       });
+      setActiveShareId(res.data.id);
       setShareUrl(`${window.location.origin}/shared/${res.data.id}`);
     } finally {
       setSharing(false);
@@ -790,12 +853,23 @@ export default function Home() {
 
         {routes.length > 0 && (
           <div className="card">
+            {activeShareId && (
+              <p className="hint" style={{ marginTop: 0 }}>
+                {liveConnected
+                  ? "🟢 실시간 동기화 중 — 다른 사람이 수정하면 바로 반영돼요"
+                  : "🟡 실시간 연결 중..."}
+              </p>
+            )}
             <button
               className="btn-primary"
               onClick={shareRoute}
               disabled={sharing}
             >
-              {sharing ? "공유 링크 생성 중..." : "🔗 공유 링크 만들기"}
+              {sharing
+                ? "공유 링크 생성 중..."
+                : activeShareId
+                ? "🔗 공유 링크 보기"
+                : "🔗 공유 링크 만들기"}
             </button>
             {shareUrl && (
               <div className="search-row" style={{ marginTop: 10 }}>

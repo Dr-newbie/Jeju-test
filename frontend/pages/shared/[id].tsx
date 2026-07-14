@@ -12,6 +12,7 @@ const NaverMap = dynamic(() => import("../../components/NaverMap"), {
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5001";
+const WS_BACKEND_URL = BACKEND_URL.replace(/^http/, "ws");
 
 const FALLBACK_TITLE = "🧭 공유된 여행 루트";
 const FALLBACK_SUBTITLE = "다른 사람이 만든 여행 코스예요";
@@ -24,6 +25,7 @@ export default function SharedRoute() {
   const [region, setRegion] = useState<RegionId | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
+  const [liveConnected, setLiveConnected] = useState(false);
 
   useEffect(() => {
     if (!id || typeof id !== "string") return;
@@ -35,6 +37,21 @@ export default function SharedRoute() {
         setRegion(res.data.region ?? "jeju");
       })
       .catch(() => setError("공유된 경로를 찾을 수 없습니다."));
+  }, [id]);
+
+  useEffect(() => {
+    if (!id || typeof id !== "string") return;
+
+    const ws = new WebSocket(`${WS_BACKEND_URL}/ws/routes/${id}`);
+    ws.onopen = () => setLiveConnected(true);
+    ws.onclose = () => setLiveConnected(false);
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      setRoutes(data.routes ?? []);
+      setRegion(data.region ?? "jeju");
+    };
+
+    return () => ws.close();
   }, [id]);
 
   const cfg = region ? REGION_CONFIGS[region] : null;
@@ -73,6 +90,12 @@ export default function SharedRoute() {
         <div className="title">{title}</div>
         <div className="subtitle">{subtitle}</div>
       </div>
+
+      {liveConnected && (
+        <p className="hint" style={{ padding: "0 4px" }}>
+          🟢 실시간 반영 중 — 편집자가 수정하면 자동으로 업데이트돼요
+        </p>
+      )}
 
       {typeof id === "string" && (
         <div className="card">

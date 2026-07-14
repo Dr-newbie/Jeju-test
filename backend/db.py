@@ -43,6 +43,14 @@ def save_shared_route(payload: dict) -> str:
     return route_id
 
 
+def update_shared_route(route_id: str, payload: dict) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE shared_routes SET payload = :payload WHERE id = :id"),
+            {"id": route_id, "payload": json.dumps(payload)},
+        )
+
+
 def get_shared_route(route_id: str) -> dict | None:
     with engine.begin() as conn:
         row = conn.execute(
