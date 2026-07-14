@@ -11,6 +11,7 @@ from naver_api import search_local_place, geocode_address, recommend_nearby
 from naver_import import fetch_naver_shared_bookmarks, parse_naver_bookmarks
 from db import init_db, save_shared_route, get_shared_route
 from llm_advisor import get_day_advice
+from regions import get_region_config
 
 app = FastAPI(title="Travel Route Planner MVP")
 
@@ -40,20 +41,21 @@ def health_check():
 
 
 @app.get("/api/search-place")
-def search_place(query: str):
+def search_place(query: str, region: str = "jeju"):
     """
     네이버 지역 검색 API로 장소 후보 검색.
-    이 서비스는 제주 여행 플래너라 검색 범위를 제주로 한정한다.
+    이 서비스는 지역별 여행 플래너라 검색 범위를 선택된 지역으로 한정한다.
     지역 검색 API에 위치 반경 파라미터가 없어서, 검색어 자체에
-    "제주"를 붙이고 결과도 주소 기준으로 한 번 더 필터링한다.
+    지역 키워드를 붙이고 결과도 주소 기준으로 한 번 더 필터링한다.
     """
     try:
-        results = search_local_place(f"제주 {query}")
-        jeju_results = [
+        cfg = get_region_config(region)
+        results = search_local_place(f"{cfg.search_keyword} {query}")
+        filtered = [
             r for r in results
-            if r.get("address") and "제주" in r["address"]
+            if r.get("address") and cfg.search_keyword in r["address"]
         ]
-        return {"items": jeju_results}
+        return {"items": filtered}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -115,6 +117,7 @@ def optimize(req: TripRequest):
         accommodation_by_day=req.accommodation_by_day,
         must_place_by_day=req.must_place_by_day,
         airport_id=req.airport_id,
+        region=req.region,
     )
 
     return TripRouteResponse(routes=routes)
@@ -161,6 +164,7 @@ class DayAdviceRequest(BaseModel):
     route: DayRoute
     restaurant_candidates: List[dict] = []
     cafe_candidates: List[dict] = []
+    region: str = "jeju"
 
 
 @app.post("/api/day-advice")
@@ -174,6 +178,7 @@ def day_advice(req: DayAdviceRequest):
             route=req.route,
             restaurant_candidates=req.restaurant_candidates,
             cafe_candidates=req.cafe_candidates,
+            region_name=get_region_config(req.region).display_name,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -183,6 +188,7 @@ class ShareRouteRequest(BaseModel):
     places: List[Place]
     num_days: int
     routes: List[DayRoute]
+    region: str = "jeju"
 
 
 @app.post("/api/routes/share")

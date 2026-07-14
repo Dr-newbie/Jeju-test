@@ -74,12 +74,13 @@ def get_day_advice(
     route: DayRoute,
     restaurant_candidates: List[dict],
     cafe_candidates: List[dict],
+    region_name: str = "제주",
 ) -> dict:
     """
     하루 경로와 주변 식당/카페 후보를 Claude에 보여주고, 끼워 넣을 만한 곳과
     그 이유를 구조화된 JSON으로 받는다.
     """
-    prompt = f"""당신은 제주 여행 동선을 검토하는 여행 플래너입니다.
+    prompt = f"""당신은 {region_name} 여행 동선을 검토하는 여행 플래너입니다.
 
 아래는 어떤 여행자의 {route.day}일차 동선과, 그 동선 주변에서 검색된 식당/카페 후보 목록입니다.
 동선의 지리적 순서와 기존 식당 구성을 보고, 후보 중에서 실제로 끼워 넣을 만한 곳이 있으면 추천해주세요.

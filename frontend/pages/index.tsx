@@ -3,6 +3,7 @@ import axios from "axios";
 import dynamic from "next/dynamic";
 import type { Place, DayRoute } from "../types";
 import { DAY_COLORS, placeIcon } from "../constants";
+import { REGION_CONFIGS, DEFAULT_REGION, type RegionId } from "../regions";
 
 const NaverMap = dynamic(() => import("../components/NaverMap"), {
   ssr: false,
@@ -13,7 +14,7 @@ const RECOMMEND_CATEGORIES = ["맛집", "카페", "관광지"];
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5001";
 
-const PLACE_TYPES: { value: string; label: string }[] = [
+const BASE_PLACE_TYPES: { value: string; label: string }[] = [
   { value: "etc", label: "미분류" },
   { value: "tourist_spot", label: "관광지" },
   { value: "restaurant", label: "식당" },
@@ -23,92 +24,33 @@ const PLACE_TYPES: { value: string; label: string }[] = [
   { value: "airport", label: "공항" },
 ];
 
-const samplePlaces: Place[] = [
-  {
-    id: "airport_1",
-    name: "제주국제공항",
-    lat: 33.5066,
-    lng: 126.4931,
-    type: "airport",
-    duration_min: 0,
-  },
-  {
-    id: "hotel_1",
-    name: "제주시 숙소",
-    lat: 33.4996,
-    lng: 126.5312,
-    type: "accommodation",
-    duration_min: 0,
-  },
-  {
-    id: "p1",
-    name: "성산일출봉",
-    lat: 33.4581,
-    lng: 126.9425,
-    type: "tourist_spot",
-    priority: 5,
-    must_visit: true,
-    preferred_day: 2,
-    duration_min: 90,
-  },
-  {
-    id: "p2",
-    name: "우도",
-    lat: 33.5065,
-    lng: 126.9556,
-    type: "tourist_spot",
-    priority: 5,
-    duration_min: 180,
-  },
-  {
-    id: "p3",
-    name: "협재해수욕장",
-    lat: 33.3946,
-    lng: 126.2397,
-    type: "tourist_spot",
-    priority: 4,
-    duration_min: 90,
-  },
-  {
-    id: "p4",
-    name: "카페 후보",
-    lat: 33.4507,
-    lng: 126.9142,
-    type: "cafe",
-    duration_min: 60,
-  },
-  {
-    id: "r1",
-    name: "점심 식당 후보",
-    lat: 33.512,
-    lng: 126.529,
-    type: "restaurant",
-    meal_slot: "lunch",
-    food_category: "한식",
-    duration_min: 60,
-  },
-  {
-    id: "r2",
-    name: "저녁 식당 후보",
-    lat: 33.247,
-    lng: 126.56,
-    type: "restaurant",
-    meal_slot: "dinner",
-    food_category: "흑돼지",
-    duration_min: 80,
-  },
-];
+function getPlaceTypes(anchorLabel: string) {
+  return BASE_PLACE_TYPES.map((t) =>
+    t.value === "airport" ? { ...t, label: anchorLabel } : t
+  );
+}
 
 export default function Home() {
-  const [places, setPlaces] = useState<Place[]>(samplePlaces);
+  const [region, setRegion] = useState<RegionId>(DEFAULT_REGION);
+  const regionConfig = REGION_CONFIGS[region];
+  const PLACE_TYPES = getPlaceTypes(regionConfig.anchorLabel);
+
+  const [places, setPlaces] = useState<Place[]>(
+    REGION_CONFIGS[DEFAULT_REGION].samplePlaces
+  );
   const [numDays, setNumDays] = useState(3);
   const [routes, setRoutes] = useState<DayRoute[]>([]);
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [airportId, setAirportId] = useState<string>("airport_1");
+  const [airportId, setAirportId] = useState<string>(
+    REGION_CONFIGS[DEFAULT_REGION].defaultAnchorId
+  );
   const [accommodationByDay, setAccommodationByDay] = useState<
     Record<number, string>
-  >({ 1: "hotel_1", 2: "hotel_1" });
+  >({
+    1: REGION_CONFIGS[DEFAULT_REGION].defaultAccommodationId,
+    2: REGION_CONFIGS[DEFAULT_REGION].defaultAccommodationId,
+  });
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [recommendations, setRecommendations] = useState<
@@ -148,6 +90,29 @@ export default function Home() {
     window.setTimeout(() => setToast(null), 2200);
   };
 
+  const handleRegionChange = (newRegion: RegionId) => {
+    const cfg = REGION_CONFIGS[newRegion];
+    setRegion(newRegion);
+    setPlaces(cfg.samplePlaces);
+    setAirportId(cfg.defaultAnchorId);
+    setAccommodationByDay(
+      Object.fromEntries(
+        Array.from({ length: Math.max(0, numDays - 1) }, (_, i) => i + 1).map(
+          (day) => [day, cfg.defaultAccommodationId]
+        )
+      )
+    );
+    setRoutes([]);
+    setSearchResults([]);
+    setQuery("");
+    setShareUrl(null);
+    setRecommendations({});
+    setRecommendLoading(null);
+    setDayAdvice({});
+    setAdviceLoading(null);
+    setHoveredDay(null);
+  };
+
   const optimize = async (placesOverride?: Place[]) => {
     setOptimizing(true);
     try {
@@ -162,6 +127,7 @@ export default function Home() {
           )
         ),
         airport_id: airportId || undefined,
+        region,
       });
 
       setRoutes(res.data.routes);
@@ -174,7 +140,7 @@ export default function Home() {
     if (!query.trim()) return;
 
     const res = await axios.get(`${BACKEND_URL}/api/search-place`, {
-      params: { query },
+      params: { query, region },
     });
 
     setSearchResults(res.data.items);
@@ -275,6 +241,7 @@ export default function Home() {
         places,
         num_days: numDays,
         routes,
+        region,
       });
       setShareUrl(`${window.location.origin}/shared/${res.data.id}`);
     } finally {
@@ -343,6 +310,7 @@ export default function Home() {
         route,
         restaurant_candidates: recs["맛집"] ?? [],
         cafe_candidates: recs["카페"] ?? [],
+        region,
       });
 
       setDayAdvice((prev) => ({ ...prev, [route.day]: res.data }));
@@ -424,11 +392,26 @@ export default function Home() {
 
   return (
     <main className="page">
+      <div className="region-bar">
+        <label>
+          지역
+          <select
+            value={region}
+            onChange={(e) => handleRegionChange(e.target.value as RegionId)}
+            disabled={optimizing}
+          >
+            {Object.values(REGION_CONFIGS).map((cfg) => (
+              <option key={cfg.id} value={cfg.id}>
+                {cfg.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
       <div className="app-header">
-        <div className="title">🍊 제주 여행 루트 플래너</div>
-        <div className="subtitle">
-          장소를 담고, 며칠 여행할지 정하면 동선을 알아서 짜드려요
-        </div>
+        <div className="title">{regionConfig.titleCopy}</div>
+        <div className="subtitle">{regionConfig.subtitleCopy}</div>
       </div>
 
       <section className="card">
@@ -505,7 +488,7 @@ export default function Home() {
           </label>
 
           <label>
-            공항
+            {regionConfig.anchorLabel}
             <select
               value={airportId}
               onChange={(e) => setAirportId(e.target.value)}
@@ -528,12 +511,14 @@ export default function Home() {
           </button>
         </div>
         <p className="hint">
-          1일차는 공항 출발, 마지막날은 공항 도착으로 짜여요. 실제 도로
-          거리를 계산하느라 장소가 많으면 몇 초 걸릴 수 있어요.
+          1일차는 {regionConfig.anchorLabel}에서 출발하고, 마지막날은{" "}
+          {regionConfig.anchorLabel}에서 여행이 끝나요. 실제 도로 거리를
+          계산하느라 장소가 많으면 몇 초 걸릴 수 있어요.
         </p>
 
         <p className="hint" style={{ marginTop: 0 }}>
-          마지막날은 공항으로 돌아가니 숙소가 필요 없어요.
+          마지막날은 {regionConfig.anchorLabel}에서 마무리되니 숙소가 필요
+          없어요.
         </p>
 
         <div className="day-accommodation-list">

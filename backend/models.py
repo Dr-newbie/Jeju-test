@@ -49,6 +49,7 @@ class TripRequest(BaseModel):
     accommodation_by_day: Optional[dict[int, str]] = None
     must_place_by_day: Optional[dict[int, List[str]]] = None
     airport_id: Optional[str] = None
+    region: str = "jeju"
 
 
 class RouteStop(BaseModel):
