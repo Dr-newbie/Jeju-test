@@ -565,6 +565,27 @@ def insert_place_into_day(
     return finalize_day_route(day, new_route, start_place, end_place, start_hour, matrix)
 
 
+def remove_place_from_day(
+    day: int,
+    ordered_places: List[Place],
+    place_id: str,
+    start_place: Place | None,
+    end_place: Place | None,
+    start_hour: int,
+) -> DayRoute:
+    """
+    이미 만들어진 하루 route(ordered_places)에서 장소 하나만 빼고 나머지
+    순서는 그대로 유지한 채 다시 조립한다. 다른 날짜에는 전혀 영향을
+    주지 않는다.
+    """
+    new_route = [p for p in ordered_places if p.id != place_id]
+
+    anchor_points = [p for p in [start_place, end_place] if p is not None]
+    matrix = DistanceMatrix(anchor_points + new_route)
+
+    return finalize_day_route(day, new_route, start_place, end_place, start_hour, matrix)
+
+
 def build_day_route_from_order(
     day: int,
     ordered_places: List[Place],

@@ -458,6 +458,15 @@ button:disabled {
   font-size: 14px;
 }
 
+.stop-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.stop-remove {
+  flex-shrink: 0;
+}
+
 .stop-order {
   width: 22px;
   height: 22px;

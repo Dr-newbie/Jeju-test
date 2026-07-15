@@ -508,6 +508,29 @@ export default function Home() {
     }
   };
 
+  const removeStopFromRoute = async (route: DayRoute, placeId: string) => {
+    try {
+      const res = await axios.post(`${BACKEND_URL}/api/remove-place`, {
+        day: route.day,
+        places: route.stops.map((s) => s.place),
+        place_id: placeId,
+        start_place: route.start_place ?? null,
+        end_place: route.end_place ?? null,
+        start_hour: 9,
+      });
+
+      setRoutes((prev) =>
+        prev.map((r) => (r.day === route.day ? res.data : r))
+      );
+      setPlaces((prev) =>
+        prev.map((p) => (p.id === placeId ? { ...p, preferred_day: null } : p))
+      );
+      showToast("루트에서 삭제했어요");
+    } catch {
+      showToast("삭제에 실패했어요");
+    }
+  };
+
   const applyAdviceRecommendation = (day: number, placeName: string) => {
     const recs = recommendations[day];
     if (!recs) return;
@@ -978,11 +1001,22 @@ export default function Home() {
                     }}
                   >
                     <span className="stop-order">{stop.order}</span>
-                    <span>
+                    <span className="stop-content">
                       {placeIcon(stop.place.type, regionConfig.anchorIcon)}{" "}
                       <b>{stop.place.name}</b>
                       <span className="stop-meta">{stop.note}</span>
                     </span>
+                    <button
+                      type="button"
+                      className="btn-danger btn-sm stop-remove"
+                      title="이 루트에서 삭제"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeStopFromRoute(route, stop.place.id);
+                      }}
+                    >
+                      삭제
+                    </button>
                   </li>
                 ))}
               </ol>

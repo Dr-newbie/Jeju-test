@@ -11,6 +11,7 @@ from optimizer import (
     infer_place_type,
     build_day_route_from_order,
     insert_place_into_day,
+    remove_place_from_day,
 )
 from naver_api import search_local_place, geocode_address, recommend_nearby
 from naver_import import fetch_naver_shared_bookmarks, parse_naver_bookmarks
@@ -190,6 +191,34 @@ def insert_place(req: InsertPlaceRequest):
             day=req.day,
             ordered_places=req.places,
             new_place=new_place,
+            start_place=req.start_place,
+            end_place=req.end_place,
+            start_hour=req.start_hour,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class RemovePlaceRequest(BaseModel):
+    day: int
+    places: List[Place]
+    place_id: str
+    start_place: Place | None = None
+    end_place: Place | None = None
+    start_hour: int = 9
+
+
+@app.post("/api/remove-place", response_model=DayRoute)
+def remove_place(req: RemovePlaceRequest):
+    """
+    특정 날짜의 기존 route에서 장소 하나만 뺀다. 다른 날짜의 route는
+    건드리지 않는다.
+    """
+    try:
+        return remove_place_from_day(
+            day=req.day,
+            ordered_places=req.places,
+            place_id=req.place_id,
             start_place=req.start_place,
             end_place=req.end_place,
             start_hour=req.start_hour,
